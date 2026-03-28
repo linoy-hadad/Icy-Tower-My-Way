@@ -5,12 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Platformer Game with Screen Scroll</title>
     <style>
-        body, html { margin: 0; padding: 0; overflow: hidden; }
-        #gameCanvas { background-color: #87CEEB; display: block; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            background-color: #87CEEB;
+        }
     </style>
 </head>
 <body>
-    <canvas id="gameCanvas" width="400" height="600"></canvas>
+    <canvas id="gameCanvas"></canvas>
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -37,6 +49,31 @@
 
         // Platforms
         let platforms = [];
+        let sceneInitialized = false;
+
+        function clamp(value, min, max) {
+            return Math.min(Math.max(value, min), max);
+        }
+
+        function getPlatformWidth() {
+            return clamp(canvas.width * 0.18, 110, 220);
+        }
+
+        function getPlatformHeight() {
+            return clamp(canvas.height * 0.018, 10, 18);
+        }
+
+        function getPlatformCount() {
+            return Math.max(10, Math.floor(canvas.height / 90));
+        }
+
+        function getVerticalSpacing() {
+            return canvas.height / getPlatformCount();
+        }
+
+        function getMaxHorizontalStep() {
+            return clamp(canvas.width * 0.16, 90, 170);
+        }
         
         function platformsCollide(newPlatform, existingPlatforms) {
             return existingPlatforms.some(platform => {
@@ -48,24 +85,54 @@
                 );
             });
         }
-        
-        for (let i = 0; i < 10; i++) {
-            let newPlatform;
-            let isColliding = true;
-            
-            while (isColliding) {
-                newPlatform = {
-                    x: Math.random() * (canvas.width - 100),
-                    y: canvas.height - (100 * i) - 50,
-                    width: 100,
-                    height: 10
-                };
-                
-                isColliding = platformsCollide(newPlatform, platforms);
-            }
-            
-            platforms.push(newPlatform);
+
+        function createPlatform(x, y) {
+            const width = getPlatformWidth();
+            return {
+                x: clamp(x, 0, canvas.width - width),
+                y,
+                width,
+                height: getPlatformHeight()
+            };
         }
+
+        function generatePlatforms() {
+            platforms = [];
+            const platformCount = getPlatformCount();
+            const verticalSpacing = getVerticalSpacing();
+            const maxHorizontalStep = getMaxHorizontalStep();
+            let previousX = (canvas.width - getPlatformWidth()) / 2;
+
+            for (let i = 0; i < platformCount; i++) {
+                const minX = Math.max(0, previousX - maxHorizontalStep);
+                const maxX = Math.min(canvas.width - getPlatformWidth(), previousX + maxHorizontalStep);
+                const nextX = minX + Math.random() * Math.max(1, maxX - minX);
+                const nextY = canvas.height - (verticalSpacing * i) - 50;
+                const newPlatform = createPlatform(nextX, nextY);
+
+                platforms.push(newPlatform);
+                previousX = newPlatform.x;
+            }
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            if (!sceneInitialized) {
+                player.x = canvas.width / 2 - player.width / 2;
+                player.y = canvas.height - 150;
+                sceneInitialized = true;
+            } else {
+                player.x = clamp(player.x, 0, canvas.width - player.width);
+                player.y = clamp(player.y, 0, canvas.height - player.height);
+            }
+
+            generatePlatforms();
+        }
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
 
         // Key Listener
         let keys = [];
@@ -111,6 +178,8 @@
 
                     if (platform.y > canvas.height) {
                         platform.y = 0;
+                        platform.width = getPlatformWidth();
+                        platform.height = getPlatformHeight();
                         
                         let isColliding = true;
                         while (isColliding) {
