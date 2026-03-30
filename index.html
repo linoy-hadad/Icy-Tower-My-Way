@@ -52,6 +52,7 @@
         let sceneInitialized = false;
         let score = 0;
         let lastLandedPlatform = null;
+        let platformCounter = 0;
 
         function clamp(value, min, max) {
             return Math.min(Math.max(value, min), max);
@@ -189,6 +190,8 @@
             platform.timeOnPlatform = 0;
             platform.isFalling = false;
             platform.fallVelocity = 0;
+            platformCounter++;
+            platform.id = platformCounter;
         }
 
         function generatePlatforms() {
@@ -197,7 +200,8 @@
             const firstPlatformY = canvas.height - 40;
             const firstPlatformX = player.x - getPlatformWidth() / 2 + player.width / 2;
             const firstPlatform = createPlatform(firstPlatformX, firstPlatformY);
-
+            platformCounter++;
+            firstPlatform.id = platformCounter;
             platforms.push(firstPlatform);
 
             // Build upward one platform at a time, keeping each new one within jump range.
@@ -205,6 +209,8 @@
             for (let i = 1; i < platformCount; i++) {
                 const nextY = firstPlatformY - (getPlatformVerticalGap() * i);
                 const nextPlatform = createReachableRandomPlatform(previousPlatform, nextY);
+                platformCounter++;
+                nextPlatform.id = platformCounter;
                 platforms.push(nextPlatform);
                 previousPlatform = nextPlatform;
             }
@@ -344,9 +350,6 @@
                     platform.y += platform.fallVelocity;
                 }
             });
-
-            // Remove platforms that have fallen off the bottom
-            platforms = platforms.filter(platform => platform.y < canvas.height + 100);
         }
 
         function drawGame() {
@@ -358,9 +361,26 @@
 
             // Draw platforms
             ctx.fillStyle = 'black';
+            let hasLabel = false;
             platforms.forEach(platform => {
                 ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+                
+                // Display platform label for multiples of 10
+                if (platform.id % 10 === 0) {
+                    hasLabel = true;
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(platform.id, platform.x + platform.width / 2, platform.y + platform.height + 15);
+                    ctx.fillStyle = 'black';
+                    ctx.textAlign = 'left';
+                }
             });
+            
+            // Debug: show all platform IDs
+            if (!hasLabel) {
+                console.log('Platform IDs:', platforms.map(p => p.id));
+            }
             
             // Draw score
             ctx.fillStyle = 'black';
