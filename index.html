@@ -87,7 +87,10 @@
                 x: clamp(x, 0, canvas.width - width),
                 y,
                 width,
-                height: getPlatformHeight()
+                height: getPlatformHeight(),
+                timeOnPlatform: 0,
+                isFalling: false,
+                fallVelocity: 0
             };
         }
 
@@ -183,6 +186,9 @@
             platform.y = nextPlatform.y;
             platform.width = nextPlatform.width;
             platform.height = nextPlatform.height;
+            platform.timeOnPlatform = 0;
+            platform.isFalling = false;
+            platform.fallVelocity = 0;
         }
 
         function generatePlatforms() {
@@ -318,6 +324,29 @@
                     lastLandedPlatform = landedPlatform;
                 }
             }
+
+            // Platform fall system
+            platforms.forEach(platform => {
+                if (platform === landedPlatform && !platform.isFalling) {
+                    // Player is standing on this platform
+                    platform.timeOnPlatform++;
+                    if (platform.timeOnPlatform >= 240) { // 240 frames at 60fps = 4 seconds
+                        platform.isFalling = true;
+                    }
+                } else if (platform !== landedPlatform) {
+                    // Player left this platform, reset timer
+                    platform.timeOnPlatform = 0;
+                }
+                
+                // Make falling platforms accelerate downward
+                if (platform.isFalling) {
+                    platform.fallVelocity += gravity;
+                    platform.y += platform.fallVelocity;
+                }
+            });
+
+            // Remove platforms that have fallen off the bottom
+            platforms = platforms.filter(platform => platform.y < canvas.height + 100);
         }
 
         function drawGame() {
