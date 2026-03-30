@@ -50,6 +50,8 @@
         // Platforms
         let platforms = [];
         let sceneInitialized = false;
+        let score = 0;
+        let lastLandedPlatform = null;
 
         function clamp(value, min, max) {
             return Math.min(Math.max(value, min), max);
@@ -64,19 +66,19 @@
         }
 
         function getPlatformCount() {
-            return Math.max(6, Math.floor(canvas.height / 150));
+            return Math.max(9, Math.floor(canvas.height / 120));
         }
 
         function getPlatformVerticalGap() {
-            return clamp(canvas.height * 0.18, 120, 190);
+            return clamp(canvas.height * 0.14, 90, 130);
         }
 
         function getPlatformHorizontalPadding() {
             return clamp(canvas.width * 0.08, 30, 120);
         }
 
-        function getReachableHorizontalStep() {
-            return clamp(canvas.width * 0.18, 120, 240);
+        function getMaxHorizontalStep() {
+            return clamp(canvas.width * 0.22, 130, 260);
         }
 
         function createPlatform(x, y) {
@@ -89,55 +91,93 @@
             };
         }
 
-        function createRandomPlatform(y) {
+        // Treat nearby platforms as overlapping as well, so jumps stay readable.
+        function platformsOverlap(platformA, platformB) {
+            const horizontalGap = 16;
+            const verticalGap = 14;
+
+            return (
+                platformA.x < platformB.x + platformB.width + horizontalGap &&
+                platformA.x + platformA.width + horizontalGap > platformB.x &&
+                platformA.y < platformB.y + platformB.height + verticalGap &&
+                platformA.y + platformA.height + verticalGap > platformB.y
+            );
+        }
+
+        function collidesWithExistingPlatforms(candidate, excludedPlatform = null) {
+            return platforms.some(platform =>
+                platform !== excludedPlatform && platformsOverlap(candidate, platform)
+            );
+        }
+
+        // Try a handful of random positions inside the allowed range until one fits.
+        // If the row is too crowded, move the platform slightly upward and retry there.
+        function createPlacedPlatform(y, minX, maxX, excludedPlatform = null) {
+            const width = getPlatformWidth();
+            const safeMinX = clamp(minX, 0, canvas.width - width);
+            const safeMaxX = clamp(maxX, safeMinX, canvas.width - width);
+            const maxPositionAttempts = 25;
+            const maxRowAdjustments = 4;
+            const rowShift = Math.max(18, getPlatformHeight() + 8);
+
+            for (let rowAttempt = 0; rowAttempt < maxRowAdjustments; rowAttempt++) {
+                const adjustedY = y - (rowAttempt * rowShift);
+
+                for (let attempt = 0; attempt < maxPositionAttempts; attempt++) {
+                    const nextX = safeMinX + Math.random() * Math.max(1, safeMaxX - safeMinX);
+                    const candidate = createPlatform(nextX, adjustedY);
+
+                    if (!collidesWithExistingPlatforms(candidate, excludedPlatform)) {
+                        return candidate;
+                    }
+                }
+            }
+
+            return createPlatform(safeMinX, y);
+        }
+
+        // Place a platform anywhere across the screen, leaving some side padding.
+        function createRandomPlatform(y, excludedPlatform = null) {
             const width = getPlatformWidth();
             const horizontalPadding = getPlatformHorizontalPadding();
             const minX = horizontalPadding;
             const maxX = Math.max(horizontalPadding, canvas.width - width - horizontalPadding);
-            const nextX = minX + Math.random() * Math.max(1, maxX - minX);
 
-            return createPlatform(nextX, y);
+            return createPlacedPlatform(y, minX, maxX, excludedPlatform);
         }
 
-        function createReachablePlatform(fromPlatform, y) {
+        // Place the next platform near the previous one so the jump is still possible.
+        function createReachableRandomPlatform(fromPlatform, y, excludedPlatform = null) {
             const width = getPlatformWidth();
             const horizontalPadding = getPlatformHorizontalPadding();
-            const maxStep = getReachableHorizontalStep();
+            const maxStep = getMaxHorizontalStep();
             const minX = Math.max(horizontalPadding, fromPlatform.x - maxStep);
             const maxX = Math.min(
                 canvas.width - width - horizontalPadding,
                 fromPlatform.x + maxStep
             );
-            const fallbackX = clamp(fromPlatform.x, horizontalPadding, canvas.width - width - horizontalPadding);
-            const nextX = maxX > minX
-                ? minX + Math.random() * (maxX - minX)
-                : fallbackX;
 
-            return createPlatform(nextX, y);
+            return createPlacedPlatform(y, minX, maxX, excludedPlatform);
         }
 
-        function getTopmostPlatform(excludedPlatform = null) {
-            return platforms.reduce((topmost, platform) => {
-                if (platform === excludedPlatform) {
+        function recyclePlatform(platform) {
+            const topmostPlatform = platforms.reduce((topmost, current) => {
+                if (current === platform) {
                     return topmost;
                 }
 
-                if (!topmost || platform.y < topmost.y) {
-                    return platform;
+                if (!topmost || current.y < topmost.y) {
+                    return current;
                 }
 
                 return topmost;
             }, null);
-        }
 
-        function recyclePlatform(platform) {
-            const topmostPlatform = getTopmostPlatform(platform);
             const nextY = topmostPlatform
                 ? topmostPlatform.y - getPlatformVerticalGap()
                 : canvas.height - 40;
-            const nextPlatform = topmostPlatform
-                ? createReachablePlatform(topmostPlatform, nextY)
-                : createPlatform(player.x - getPlatformWidth() / 2, nextY);
+            const referencePlatform = topmostPlatform ?? createPlatform(player.x, canvas.height - 40);
+            const nextPlatform = createReachableRandomPlatform(referencePlatform, nextY, platform);
 
             platform.x = nextPlatform.x;
             platform.y = nextPlatform.y;
@@ -154,10 +194,11 @@
 
             platforms.push(firstPlatform);
 
+            // Build upward one platform at a time, keeping each new one within jump range.
             let previousPlatform = firstPlatform;
             for (let i = 1; i < platformCount; i++) {
                 const nextY = firstPlatformY - (getPlatformVerticalGap() * i);
-                const nextPlatform = createReachablePlatform(previousPlatform, nextY);
+                const nextPlatform = createReachableRandomPlatform(previousPlatform, nextY);
                 platforms.push(nextPlatform);
                 previousPlatform = nextPlatform;
             }
@@ -197,6 +238,7 @@
         });
 
         function updateGame() {
+            let landedPlatform = null;
             // Horizontal movement input
             if (keys[39]) { // right
                 if (player.velX < player.speed) {
@@ -255,11 +297,27 @@
                     player.y + player.height < platform.y + platform.height &&
                     player.velY >= 0
                 ) {
-                    player.jumping = false;
-                    player.velY = 0;
-                    player.y = platform.y - player.height;
+                    landedPlatform = platform;
                 }
             });
+
+            if (landedPlatform) {
+                player.jumping = false;
+                player.velY = 0;
+                player.y = landedPlatform.y - player.height;
+                
+                // Award points only when landing on a new platform that is higher up
+                if (lastLandedPlatform !== landedPlatform) {
+                    // Only award points if moving to a higher platform (lower Y value)
+                    if (!lastLandedPlatform || landedPlatform.y < lastLandedPlatform.y) {
+                        const basePoints = 2;
+                        const velocityBonus = Math.floor(Math.abs(player.velY));
+                        const pointsEarned = basePoints + velocityBonus;
+                        score += pointsEarned;
+                    }
+                    lastLandedPlatform = landedPlatform;
+                }
+            }
         }
 
         function drawGame() {
@@ -274,6 +332,11 @@
             platforms.forEach(platform => {
                 ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
             });
+            
+            // Draw score
+            ctx.fillStyle = 'black';
+            ctx.font = '24px Arial';
+            ctx.fillText('Score: ' + score, 20, 40);
         }
 
         let lastTime = 0;
