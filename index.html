@@ -28,6 +28,7 @@
         const BEST_SCORES_KEY = 'icyTowerBestScores';
         const PLAYER_SPRITE_WIDTH = 56;
         const PLAYER_SPRITE_HEIGHT = 56;
+        const PLAYER_SPRITE_VERTICAL_OFFSET = 10;
 
         const TARGET_FPS = 60;
         const FRAME_TIME = 1000 / TARGET_FPS;
@@ -61,8 +62,10 @@
         let gameState = "playing"; // "playing" or "gameOver"
         const playerFrontImage = new Image();
         const playerBackImage = new Image();
+        const platformImage = new Image();
         playerFrontImage.src = './assets/player-front.png';
         playerBackImage.src = './assets/player-back.png';
+        platformImage.src = './assets/platform.png';
 
         function loadBestScores() {
             const rawScores = sessionStorage.getItem(BEST_SCORES_KEY);
@@ -180,6 +183,12 @@
             return clamp(canvas.width * 0.18, 110, 220);
         }
 
+        function getRandomPlatformWidth() {
+            const baseWidth = getPlatformWidth();
+            const variedWidth = baseWidth * (0.7 + Math.random() * 0.6);
+            return clamp(variedWidth, 90, 260);
+        }
+
         function getPlatformHeight() {
             return clamp(canvas.height * 0.018, 10, 18);
         }
@@ -200,8 +209,7 @@
             return clamp(canvas.width * 0.22, 130, 260);
         }
 
-        function createPlatform(x, y) {
-            const width = getPlatformWidth();
+        function createPlatform(x, y, width = getRandomPlatformWidth()) {
             return {
                 x: clamp(x, 0, canvas.width - width),
                 y,
@@ -234,8 +242,7 @@
 
         // Try a handful of random positions inside the allowed range until one fits.
         // If the row is too crowded, move the platform slightly upward and retry there.
-        function createPlacedPlatform(y, minX, maxX, excludedPlatform = null) {
-            const width = getPlatformWidth();
+        function createPlacedPlatform(y, minX, maxX, excludedPlatform = null, width = getRandomPlatformWidth()) {
             const safeMinX = clamp(minX, 0, canvas.width - width);
             const safeMaxX = clamp(maxX, safeMinX, canvas.width - width);
             const maxPositionAttempts = 25;
@@ -247,7 +254,7 @@
 
                 for (let attempt = 0; attempt < maxPositionAttempts; attempt++) {
                     const nextX = safeMinX + Math.random() * Math.max(1, safeMaxX - safeMinX);
-                    const candidate = createPlatform(nextX, adjustedY);
+                    const candidate = createPlatform(nextX, adjustedY, width);
 
                     if (!collidesWithExistingPlatforms(candidate, excludedPlatform)) {
                         return candidate;
@@ -255,22 +262,22 @@
                 }
             }
 
-            return createPlatform(safeMinX, y);
+            return createPlatform(safeMinX, y, width);
         }
 
         // Place a platform anywhere across the screen, leaving some side padding.
         function createRandomPlatform(y, excludedPlatform = null) {
-            const width = getPlatformWidth();
+            const width = getRandomPlatformWidth();
             const horizontalPadding = getPlatformHorizontalPadding();
             const minX = horizontalPadding;
             const maxX = Math.max(horizontalPadding, canvas.width - width - horizontalPadding);
 
-            return createPlacedPlatform(y, minX, maxX, excludedPlatform);
+            return createPlacedPlatform(y, minX, maxX, excludedPlatform, width);
         }
 
         // Place the next platform near the previous one so the jump is still possible.
         function createReachableRandomPlatform(fromPlatform, y, excludedPlatform = null) {
-            const width = getPlatformWidth();
+            const width = getRandomPlatformWidth();
             const horizontalPadding = getPlatformHorizontalPadding();
             const maxStep = getMaxHorizontalStep();
             const minX = Math.max(horizontalPadding, fromPlatform.x - maxStep);
@@ -279,7 +286,7 @@
                 fromPlatform.x + maxStep
             );
 
-            return createPlacedPlatform(y, minX, maxX, excludedPlatform);
+            return createPlacedPlatform(y, minX, maxX, excludedPlatform, width);
         }
 
         function recyclePlatform(platform) {
@@ -298,7 +305,7 @@
             const nextY = topmostPlatform
                 ? topmostPlatform.y - getPlatformVerticalGap()
                 : canvas.height - 40;
-            const referencePlatform = topmostPlatform ?? createPlatform(player.x, canvas.height - 40);
+            const referencePlatform = topmostPlatform ?? createPlatform(player.x, canvas.height - 40, getPlatformWidth());
             const nextPlatform = createReachableRandomPlatform(referencePlatform, nextY, platform);
 
             // Remove associated enemy BEFORE changing platform ID
@@ -327,7 +334,7 @@
             const platformCount = getPlatformCount();
             const firstPlatformY = canvas.height - 40;
             const firstPlatformX = player.x - getPlatformWidth() / 2 + player.width / 2;
-            const firstPlatform = createPlatform(firstPlatformX, firstPlatformY);
+            const firstPlatform = createPlatform(firstPlatformX, firstPlatformY, getPlatformWidth());
             platformCounter++;
             firstPlatform.id = platformCounter;
             platforms.push(firstPlatform);
@@ -644,7 +651,7 @@
             // Draw player
             const activePlayerImage = player.jumping ? playerBackImage : playerFrontImage;
             const spriteX = player.x - (PLAYER_SPRITE_WIDTH - player.width) / 2;
-            const spriteY = player.y - (PLAYER_SPRITE_HEIGHT - player.height);
+            const spriteY = player.y - (PLAYER_SPRITE_HEIGHT - player.height) - PLAYER_SPRITE_VERTICAL_OFFSET;
 
             if (activePlayerImage.complete && activePlayerImage.naturalWidth > 0) {
                 ctx.drawImage(
@@ -663,7 +670,17 @@
             ctx.fillStyle = 'black';
             let hasLabel = false;
             platforms.forEach(platform => {
-                ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+                if (platformImage.complete && platformImage.naturalWidth > 0) {
+                    ctx.drawImage(
+                        platformImage,
+                        platform.x,
+                        platform.y - (platform.height * 1.8),
+                        platform.width,
+                        platform.height * 3
+                    );
+                } else {
+                    ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+                }
                 
                 // Display platform label for multiples of 10
                 if (platform.id % 10 === 0) {
