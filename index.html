@@ -29,6 +29,8 @@
         const PLAYER_SPRITE_WIDTH = 56;
         const PLAYER_SPRITE_HEIGHT = 56;
         const PLAYER_SPRITE_VERTICAL_OFFSET = 10;
+        const ENEMY_SPRITE_SIZE = 42;
+        const BULLET_SPRITE_SIZE = 32;
 
         const TARGET_FPS = 60;
         const FRAME_TIME = 1000 / TARGET_FPS;
@@ -63,9 +65,15 @@
         const playerFrontImage = new Image();
         const playerBackImage = new Image();
         const platformImage = new Image();
+        const enemyNoGunImage = new Image();
+        const enemyWithGunImage = new Image();
+        const bulletImage = new Image();
         playerFrontImage.src = './assets/player-front.png';
         playerBackImage.src = './assets/player-back.png';
         platformImage.src = './assets/platform.png';
+        enemyNoGunImage.src = './assets/enemy-no-gun.png';
+        enemyWithGunImage.src = './assets/enemy-with-gun.png';
+        bulletImage.src = './assets/bullet.png';
 
         function loadBestScores() {
             const rawScores = sessionStorage.getItem(BEST_SCORES_KEY);
@@ -463,23 +471,49 @@
 
         function drawEnemies() {
             enemies.forEach(enemy => {
-                // Draw triangle for all enemy types
-                ctx.fillStyle = enemy.type === 1 ? '#FF6B6B' : enemy.type === 2 ? '#FFA500' : '#FFD700';
-                ctx.beginPath();
-                ctx.moveTo(enemy.x + enemy.width / 2, enemy.y); // Top point
-                ctx.lineTo(enemy.x + enemy.width, enemy.y + enemy.height); // Bottom right
-                ctx.lineTo(enemy.x, enemy.y + enemy.height); // Bottom left
-                ctx.closePath();
-                ctx.fill();
+                const enemyImage = enemy.type === 3 ? enemyWithGunImage : enemyNoGunImage;
+                const spriteX = enemy.x - (ENEMY_SPRITE_SIZE - enemy.width) / 2;
+                const spriteY = enemy.y - (ENEMY_SPRITE_SIZE - enemy.height);
+
+                if (enemyImage.complete && enemyImage.naturalWidth > 0) {
+                    ctx.drawImage(
+                        enemyImage,
+                        spriteX,
+                        spriteY,
+                        ENEMY_SPRITE_SIZE,
+                        ENEMY_SPRITE_SIZE
+                    );
+                } else {
+                    ctx.fillStyle = enemy.type === 1 ? '#FF6B6B' : enemy.type === 2 ? '#FFA500' : '#FFD700';
+                    ctx.beginPath();
+                    ctx.moveTo(enemy.x + enemy.width / 2, enemy.y);
+                    ctx.lineTo(enemy.x + enemy.width, enemy.y + enemy.height);
+                    ctx.lineTo(enemy.x, enemy.y + enemy.height);
+                    ctx.closePath();
+                    ctx.fill();
+                }
             });
         }
 
         function drawBullets() {
-            ctx.fillStyle = '#000000'; // Black
             bullets.forEach(bullet => {
-                ctx.beginPath();
-                ctx.arc(bullet.x + bullet.width / 2, bullet.y + bullet.height / 2, bullet.width, 0, Math.PI * 2);
-                ctx.fill();
+                const spriteX = bullet.x - (BULLET_SPRITE_SIZE - bullet.width) / 2;
+                const spriteY = bullet.y - (BULLET_SPRITE_SIZE - bullet.height) / 2;
+
+                if (bulletImage.complete && bulletImage.naturalWidth > 0) {
+                    ctx.drawImage(
+                        bulletImage,
+                        spriteX,
+                        spriteY,
+                        BULLET_SPRITE_SIZE,
+                        BULLET_SPRITE_SIZE
+                    );
+                } else {
+                    ctx.fillStyle = '#000000';
+                    ctx.beginPath();
+                    ctx.arc(bullet.x + bullet.width / 2, bullet.y + bullet.height / 2, bullet.width, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             });
         }
 
