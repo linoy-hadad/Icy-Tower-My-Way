@@ -38,6 +38,10 @@
         const PLAYER_SPRITE_VERTICAL_OFFSET = 10;
         const ENEMY_SPRITE_SIZE = 42;
         const BULLET_SPRITE_SIZE = 32;
+        const MOVING_PLATFORM_CHANCE = 0.06;
+        const MOVING_PLATFORM_AMPLITUDE = 24;
+        const MOVING_PLATFORM_SPEED = 0.025;
+        const PLATFORM_FALL_DELAY_FRAMES = 240;
 
         const TARGET_FPS = 60;
         const FRAME_TIME = 1000 / TARGET_FPS;
@@ -224,26 +228,90 @@
             return clamp(canvas.width * 0.22, 130, 260);
         }
 
-        function createPlatform(x, y, width = getRandomPlatformWidth()) {
+        function createPlatform(x, y, width = getRandomPlatformWidth(), options = {}) {
+            const isMoving = options.isMoving ?? (Math.random() < MOVING_PLATFORM_CHANCE);
+
             return {
                 x: clamp(x, 0, canvas.width - width),
                 y,
+                baseY: y,
+                previousY: y,
                 width,
                 height: getPlatformHeight(),
                 timeOnPlatform: 0,
                 isFalling: false,
-                fallVelocity: 0
+                fallVelocity: 0,
+                isMoving,
+                moveAmplitude: isMoving ? MOVING_PLATFORM_AMPLITUDE : 0,
+                moveSpeed: isMoving ? MOVING_PLATFORM_SPEED : 0,
+                movePhase: Math.random() * Math.PI * 2
             };
+        }
+
+        function platformsOverlapHorizontally(platformA, platformB) {
+            const horizontalGap = 16;
+
+            return (
+                platformA.x < platformB.x + platformB.width + horizontalGap &&
+                platformA.x + platformA.width + horizontalGap > platformB.x
+            );
+        }
+
+        function getSafeMovingAmplitude(candidate, excludedPlatform = null) {
+            const verticalGap = 14;
+            let safeAmplitude = candidate.moveAmplitude;
+
+            platforms.forEach(platform => {
+                if (platform === excludedPlatform || !platformsOverlapHorizontally(candidate, platform)) {
+                    return;
+                }
+
+                const otherAmplitude = platform.isMoving ? platform.moveAmplitude : 0;
+                const otherBaseY = platform.baseY ?? platform.y;
+
+                if (candidate.baseY <= otherBaseY) {
+                    const allowedAmplitude = otherBaseY - otherAmplitude - (candidate.baseY + candidate.height + verticalGap);
+                    safeAmplitude = Math.min(safeAmplitude, allowedAmplitude);
+                } else {
+                    const allowedAmplitude = candidate.baseY - (otherBaseY + platform.height + otherAmplitude + verticalGap);
+                    safeAmplitude = Math.min(safeAmplitude, allowedAmplitude);
+                }
+            });
+
+            return Math.max(0, safeAmplitude);
+        }
+
+        function configurePlatformMotion(platform, excludedPlatform = null) {
+            if (!platform.isMoving) {
+                platform.moveAmplitude = 0;
+                return platform;
+            }
+
+            const safeAmplitude = getSafeMovingAmplitude(platform, excludedPlatform);
+
+            if (safeAmplitude < 8) {
+                platform.isMoving = false;
+                platform.moveAmplitude = 0;
+                platform.moveSpeed = 0;
+            } else {
+                platform.moveAmplitude = Math.min(platform.moveAmplitude, safeAmplitude);
+            }
+
+            return platform;
+        }
+
+        function maybeSpawnEnemy(platform) {
+            if (!platform.isMoving && getRandomEnemyChance()) {
+                enemies.push(createEnemy(platform));
+            }
         }
 
         // Treat nearby platforms as overlapping as well, so jumps stay readable.
         function platformsOverlap(platformA, platformB) {
-            const horizontalGap = 16;
             const verticalGap = 14;
 
             return (
-                platformA.x < platformB.x + platformB.width + horizontalGap &&
-                platformA.x + platformA.width + horizontalGap > platformB.x &&
+                platformsOverlapHorizontally(platformA, platformB) &&
                 platformA.y < platformB.y + platformB.height + verticalGap &&
                 platformA.y + platformA.height + verticalGap > platformB.y
             );
@@ -269,7 +337,10 @@
 
                 for (let attempt = 0; attempt < maxPositionAttempts; attempt++) {
                     const nextX = safeMinX + Math.random() * Math.max(1, safeMaxX - safeMinX);
-                    const candidate = createPlatform(nextX, adjustedY, width);
+                    const candidate = configurePlatformMotion(
+                        createPlatform(nextX, adjustedY, width),
+                        excludedPlatform
+                    );
 
                     if (!collidesWithExistingPlatforms(candidate, excludedPlatform)) {
                         return candidate;
@@ -277,7 +348,10 @@
                 }
             }
 
-            return createPlatform(safeMinX, y, width);
+            return configurePlatformMotion(
+                createPlatform(safeMinX, y, width),
+                excludedPlatform
+            );
         }
 
         // Place a platform anywhere across the screen, leaving some side padding.
@@ -320,7 +394,7 @@
             const nextY = topmostPlatform
                 ? topmostPlatform.y - getPlatformVerticalGap()
                 : canvas.height - 40;
-            const referencePlatform = topmostPlatform ?? createPlatform(player.x, canvas.height - 40, getPlatformWidth());
+            const referencePlatform = topmostPlatform ?? createPlatform(player.x, canvas.height - 40, getPlatformWidth(), { isMoving: false });
             const nextPlatform = createReachableRandomPlatform(referencePlatform, nextY, platform);
 
             // Remove associated enemy BEFORE changing platform ID
@@ -329,18 +403,21 @@
 
             platform.x = nextPlatform.x;
             platform.y = nextPlatform.y;
+            platform.baseY = nextPlatform.baseY;
+            platform.previousY = nextPlatform.previousY;
             platform.width = nextPlatform.width;
             platform.height = nextPlatform.height;
             platform.timeOnPlatform = 0;
             platform.isFalling = false;
             platform.fallVelocity = 0;
+            platform.isMoving = nextPlatform.isMoving;
+            platform.moveAmplitude = nextPlatform.moveAmplitude;
+            platform.moveSpeed = nextPlatform.moveSpeed;
+            platform.movePhase = nextPlatform.movePhase;
             platformCounter++;
             platform.id = platformCounter;
 
-            // Potentially spawn a new enemy on this platform
-            if (getRandomEnemyChance()) {
-                enemies.push(createEnemy(platform));
-            }
+            maybeSpawnEnemy(platform);
         }
 
         function generatePlatforms() {
@@ -349,7 +426,7 @@
             const platformCount = getPlatformCount();
             const firstPlatformY = canvas.height - 40;
             const firstPlatformX = player.x - getPlatformWidth() / 2 + player.width / 2;
-            const firstPlatform = createPlatform(firstPlatformX, firstPlatformY, getPlatformWidth());
+            const firstPlatform = createPlatform(firstPlatformX, firstPlatformY, getPlatformWidth(), { isMoving: false });
             platformCounter++;
             firstPlatform.id = platformCounter;
             platforms.push(firstPlatform);
@@ -363,14 +440,28 @@
                 platformCounter++;
                 nextPlatform.id = platformCounter;
                 platforms.push(nextPlatform);
-
-                // Potentially spawn an enemy on this platform
-                if (getRandomEnemyChance()) {
-                    enemies.push(createEnemy(nextPlatform));
-                }
+                maybeSpawnEnemy(nextPlatform);
 
                 previousPlatform = nextPlatform;
             }
+        }
+
+        function updateMovingPlatforms() {
+            platforms.forEach(platform => {
+                platform.previousY = platform.y;
+
+                if (platform.isFalling) {
+                    platform.baseY = platform.y;
+                    return;
+                }
+
+                if (platform.isMoving) {
+                    platform.movePhase += platform.moveSpeed;
+                    platform.y = platform.baseY + Math.sin(platform.movePhase) * platform.moveAmplitude;
+                } else {
+                    platform.y = platform.baseY;
+                }
+            });
         }
 
         function resizeCanvas() {
@@ -609,6 +700,8 @@
 
                 platforms.forEach(platform => {
                     platform.y += scrollAmount;
+                    platform.baseY += scrollAmount;
+                    platform.previousY += scrollAmount;
 
                     if (platform.y > canvas.height) {
                         recyclePlatform(platform);
@@ -625,9 +718,12 @@
                 player.velX = 0;
             }
 
+            updateMovingPlatforms();
+
             // Platform collision
             platforms.forEach(platform => {
                 if (
+                    !platform.isFalling &&
                     player.x < platform.x + platform.width &&
                     player.x + player.width > platform.x &&
                     player.y + player.height > platform.y &&
@@ -640,8 +736,8 @@
 
             if (landedPlatform) {
                 player.jumping = false;
-                player.velY = 0;
                 player.y = landedPlatform.y - player.height;
+                player.velY = 0;
                 currentPlatform = landedPlatform; // Track current platform
                 
                 // Award points only when landing on a new platform that is higher up
@@ -664,7 +760,7 @@
                 if (platform === landedPlatform && !platform.isFalling) {
                     // Player is standing on this platform
                     platform.timeOnPlatform++;
-                    if (platform.timeOnPlatform >= 240) { // 240 frames at 60fps = 4 seconds
+                    if (platform.timeOnPlatform >= PLATFORM_FALL_DELAY_FRAMES) { // 4 seconds at 60 FPS
                         platform.isFalling = true;
                     }
                 } else if (platform !== landedPlatform) {
