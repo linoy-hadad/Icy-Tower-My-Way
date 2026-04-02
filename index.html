@@ -4,25 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Platformer Game with Screen Scroll</title>
-    <style>
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-        }
-
-        #gameCanvas {
-            display: block;
-            width: 100vw;
-            height: 100vh;
-            background-color: #87CEEB;
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <canvas id="gameCanvas"></canvas>
+    <div id="gameOverScreen">
+        <div class="gameOverModal">
+            <h1>Game Over!</h1>
+            <p id="gameOverMessage">You hit an enemy!</p>
+            <button class="playAgainBtn" id="playAgainBtn">Play Again</button>
+        </div>
+    </div>
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -49,13 +41,63 @@
 
         // Platforms
         let platforms = [];
+        let enemies = [];
+        let bullets = [];
         let sceneInitialized = false;
         let score = 0;
         let lastLandedPlatform = null;
+        let currentPlatform = null;
         let platformCounter = 0;
+        let gameState = "playing"; // "playing" or "gameOver"
 
         function clamp(value, min, max) {
             return Math.min(Math.max(value, min), max);
+        }
+
+        // Enemy helper functions
+        function getRandomEnemyChance() {
+            return Math.random() < 0.05; // 5% chance
+        }
+
+        function getEnemyType() {
+            const rand = Math.random();
+            if (rand < 0.25) return 1;     // 25% Type1 (temporarily reduced for testing)
+            if (rand < 0.5) return 2;      // 25% Type2 (temporarily reduced for testing)
+            return 3;                       // 50% Type3 (temporarily increased for testing)
+        }
+
+        function createEnemy(platform) {
+            const size = 12;
+            return {
+                x: platform.x + platform.width / 2 - size / 2,
+                y: platform.y - size - 5,
+                width: size,
+                height: size,
+                type: getEnemyType(),
+                platformId: platform.id,
+                direction: Math.random() > 0.5 ? 1 : -1,
+                speed: 2,
+                shootTimer: 59, // Initialize high so it shoots immediately
+                shootInterval: 60 // frames between shots for Type3 (1 second at 60 FPS)
+            };
+        }
+
+        function createBullet(fromX, fromY, toX, toY) {
+            const bulletSpeed = 4;
+            const dx = toX - fromX;
+            const dy = toY - fromY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const velX = (dx / distance) * bulletSpeed;
+            const velY = (dy / distance) * bulletSpeed;
+
+            return {
+                x: fromX,
+                y: fromY,
+                velX,
+                velY,
+                width: 10,
+                height: 10
+            };
         }
 
         function getPlatformWidth() {
@@ -183,6 +225,10 @@
             const referencePlatform = topmostPlatform ?? createPlatform(player.x, canvas.height - 40);
             const nextPlatform = createReachableRandomPlatform(referencePlatform, nextY, platform);
 
+            // Remove associated enemy BEFORE changing platform ID
+            const oldPlatformId = platform.id;
+            enemies = enemies.filter(enemy => enemy.platformId !== oldPlatformId);
+
             platform.x = nextPlatform.x;
             platform.y = nextPlatform.y;
             platform.width = nextPlatform.width;
@@ -192,10 +238,16 @@
             platform.fallVelocity = 0;
             platformCounter++;
             platform.id = platformCounter;
+
+            // Potentially spawn a new enemy on this platform
+            if (getRandomEnemyChance()) {
+                enemies.push(createEnemy(platform));
+            }
         }
 
         function generatePlatforms() {
             platforms = [];
+            enemies = [];
             const platformCount = getPlatformCount();
             const firstPlatformY = canvas.height - 40;
             const firstPlatformX = player.x - getPlatformWidth() / 2 + player.width / 2;
@@ -203,6 +255,7 @@
             platformCounter++;
             firstPlatform.id = platformCounter;
             platforms.push(firstPlatform);
+            lastLandedPlatform = firstPlatform; // Initialize so first landing doesn't award points
 
             // Build upward one platform at a time, keeping each new one within jump range.
             let previousPlatform = firstPlatform;
@@ -212,6 +265,12 @@
                 platformCounter++;
                 nextPlatform.id = platformCounter;
                 platforms.push(nextPlatform);
+
+                // Potentially spawn an enemy on this platform
+                if (getRandomEnemyChance()) {
+                    enemies.push(createEnemy(nextPlatform));
+                }
+
                 previousPlatform = nextPlatform;
             }
         }
@@ -249,7 +308,148 @@
             keys[e.keyCode] = false;
         });
 
+        function updateEnemies() {
+            enemies = enemies.filter(enemy => {
+                const basePlatform = platforms.find(p => p.id === enemy.platformId);
+                // Remove enemies whose platform is no longer on screen
+                return basePlatform && basePlatform.y < canvas.height;
+            });
+
+            enemies.forEach(enemy => {
+                const basePlatform = platforms.find(p => p.id === enemy.platformId);
+                if (!basePlatform) return;
+
+                // Update enemy position with platform
+                enemy.y = basePlatform.y - enemy.height - 5;
+
+                if (enemy.type === 2) {
+                    // Type2: Move side to side
+                    enemy.x += enemy.direction * enemy.speed;
+
+                    // Bounce at edges of platform
+                    if (enemy.x <= basePlatform.x || enemy.x + enemy.width >= basePlatform.x + basePlatform.width) {
+                        enemy.direction *= -1;
+                    }
+                } else if (enemy.type === 3) {
+                    // Type3: Only shoot if player is on the same platform
+                    if (currentPlatform && currentPlatform.id === enemy.platformId) {
+                        enemy.shootTimer++;
+                        if (enemy.shootTimer >= enemy.shootInterval) {
+                            // Fire bullet towards player
+                            const playerCenterX = player.x + player.width / 2;
+                            const playerCenterY = player.y + player.height / 2;
+                            const enemyCenterX = enemy.x + enemy.width / 2;
+                            const enemyCenterY = enemy.y + enemy.height / 2;
+                            
+                            bullets.push(createBullet(enemyCenterX, enemyCenterY, playerCenterX, playerCenterY));
+                            enemy.shootTimer = 0;
+                        }
+                    } else {
+                        // Reset timer when player is not on platform
+                        enemy.shootTimer = 0;
+                    }
+                }
+            });
+        }
+
+        function updateBullets() {
+            bullets = bullets.filter(bullet => {
+                bullet.x += bullet.velX;
+                bullet.y += bullet.velY;
+                // Remove bullets that go off screen
+                return bullet.x > -10 && bullet.x < canvas.width + 10 && 
+                       bullet.y > -10 && bullet.y < canvas.height + 10;
+            });
+        }
+
+        function checkBulletCollision() {
+            bullets = bullets.filter(bullet => {
+                if (
+                    player.x < bullet.x + bullet.width &&
+                    player.x + player.width > bullet.x &&
+                    player.y < bullet.y + bullet.height &&
+                    player.y + player.height > bullet.y
+                ) {
+                    // Bullet hit player - game over
+                    endGame("You got hit by a bullet!");
+                    return false; // Remove this bullet
+                }
+                return true; // Keep this bullet
+            });
+        }
+
+        function drawEnemies() {
+            enemies.forEach(enemy => {
+                // Draw triangle for all enemy types
+                ctx.fillStyle = enemy.type === 1 ? '#FF6B6B' : enemy.type === 2 ? '#FFA500' : '#FFD700';
+                ctx.beginPath();
+                ctx.moveTo(enemy.x + enemy.width / 2, enemy.y); // Top point
+                ctx.lineTo(enemy.x + enemy.width, enemy.y + enemy.height); // Bottom right
+                ctx.lineTo(enemy.x, enemy.y + enemy.height); // Bottom left
+                ctx.closePath();
+                ctx.fill();
+            });
+        }
+
+        function drawBullets() {
+            ctx.fillStyle = '#000000'; // Black
+            bullets.forEach(bullet => {
+                ctx.beginPath();
+                ctx.arc(bullet.x + bullet.width / 2, bullet.y + bullet.height / 2, bullet.width, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        function checkEnemyCollision() {
+            enemies.forEach(enemy => {
+                if (
+                    player.x < enemy.x + enemy.width &&
+                    player.x + player.width > enemy.x &&
+                    player.y < enemy.y + enemy.height &&
+                    player.y + player.height > enemy.y
+                ) {
+                    // Collision detected - game over
+                    endGame("You hit an enemy!");
+                }
+            });
+        }
+
+        function resetGame() {
+            // Reset player
+            player.x = canvas.width / 2 - player.width / 2;
+            player.y = canvas.height - 150;
+            player.velX = 0;
+            player.velY = 0;
+            player.jumping = false;
+
+            // Reset score and state
+            score = 0;
+            lastLandedPlatform = null; // Will be set to first platform in generatePlatforms
+            currentPlatform = null;
+            gameState = "playing";
+            platformCounter = 0;
+
+            // Clear platforms and enemies
+            platforms = [];
+            enemies = [];
+            bullets = [];
+
+            // Generate new platforms
+            generatePlatforms();
+
+            // Hide game over screen
+            document.getElementById('gameOverScreen').classList.remove('show');
+        }
+
+        function endGame(message) {
+            gameState = "gameOver";
+            document.getElementById('gameOverMessage').textContent = message;
+            document.getElementById('gameOverScreen').classList.add('show');
+        }
+
         function updateGame() {
+            if (gameState !== "playing") return;
+
             let landedPlatform = null;
             // Horizontal movement input
             if (keys[39]) { // right
@@ -269,6 +469,12 @@
 
             player.x += player.velX;
             player.y += player.velY;
+
+            // Check if player fell off the bottom
+            if (player.y > canvas.height) {
+                endGame("You fell off the screen!");
+                return;
+            }
 
             // Screen scroll
             if (player.y < canvas.height / 4) {
@@ -293,13 +499,6 @@
                 player.velX = 0;
             }
 
-            // Ground collision
-            if (player.y >= canvas.height - player.height) {
-                player.y = canvas.height - player.height;
-                player.jumping = false;
-                player.velY = 0;
-            }
-
             // Platform collision
             platforms.forEach(platform => {
                 if (
@@ -317,6 +516,7 @@
                 player.jumping = false;
                 player.velY = 0;
                 player.y = landedPlatform.y - player.height;
+                currentPlatform = landedPlatform; // Track current platform
                 
                 // Award points only when landing on a new platform that is higher up
                 if (lastLandedPlatform !== landedPlatform) {
@@ -329,6 +529,8 @@
                     }
                     lastLandedPlatform = landedPlatform;
                 }
+            } else {
+                currentPlatform = null; // Player left platform
             }
 
             // Platform fall system
@@ -350,6 +552,12 @@
                     platform.y += platform.fallVelocity;
                 }
             });
+
+            // Update enemies and check collisions
+            updateEnemies();
+            updateBullets();
+            checkEnemyCollision();
+            checkBulletCollision();
         }
 
         function drawGame() {
@@ -382,6 +590,12 @@
                 console.log('Platform IDs:', platforms.map(p => p.id));
             }
             
+            // Draw enemies
+            drawEnemies();
+
+            // Draw bullets
+            drawBullets();
+
             // Draw score
             ctx.fillStyle = 'black';
             ctx.font = '24px Arial';
@@ -410,6 +624,9 @@
             drawGame();
             requestAnimationFrame(gameLoop);
         }
+
+        // Event listeners
+        document.getElementById('playAgainBtn').addEventListener('click', resetGame);
 
         requestAnimationFrame(gameLoop);
     </script>
