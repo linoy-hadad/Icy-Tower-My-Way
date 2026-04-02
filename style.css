@@ -6,6 +6,10 @@ html, body {
     overflow: hidden;
 }
 
+body {
+    font-family: 'Almendra', Georgia, serif;
+}
+
 #backgroundVideo {
     position: fixed;
     inset: 0;
@@ -28,14 +32,14 @@ html, body {
 #gameOverScreen {
     display: none;
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0, 0, 0, 0.7);
+    inset: 0;
     z-index: 1000;
     justify-content: center;
     align-items: center;
+    padding: 10px;
+    background: rgba(5, 12, 22, 0.16);
+    backdrop-filter: blur(1px);
+    box-sizing: border-box;
 }
 
 #gameOverScreen.show {
@@ -43,85 +47,212 @@ html, body {
 }
 
 .gameOverModal {
-    background-color: white;
-    padding: 40px;
-    border-radius: 20px;
+    position: relative;
+    width: min(82vw, 340px);
+    max-height: calc(100vh - 20px);
+    border-radius: 34px;
+    overflow: hidden;
+    background:
+        linear-gradient(180deg, rgba(32, 56, 82, 0.96), rgba(18, 34, 54, 0.94)),
+        linear-gradient(135deg, rgba(162, 215, 247, 0.1), transparent 60%);
+    border: 2px solid rgba(174, 223, 252, 0.35);
+    box-shadow:
+        0 24px 60px rgba(0, 0, 0, 0.5),
+        inset 0 0 30px rgba(166, 224, 255, 0.08);
+    animation: boardPopIn 0.38s cubic-bezier(0.2, 0.9, 0.2, 1.15);
+}
+
+.gameOverModal::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(circle at top, rgba(212, 240, 255, 0.2), transparent 28%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 16%);
+    pointer-events: none;
+}
+
+.gameOverContent {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 14px 14px;
+}
+
+.gameOverTitle {
+    margin: 0;
     text-align: center;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    max-width: 500px;
-    animation: slideIn 0.3s ease-out;
+    font-family: 'Cinzel Decorative', 'Times New Roman', serif;
+    font-size: clamp(1.55rem, 4.8vw, 2.5rem);
+    line-height: 0.95;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #dff8ff;
+    text-shadow:
+        0 0 10px rgba(135, 206, 235, 0.9),
+        0 0 20px rgba(0, 191, 255, 0.55),
+        0 4px 0 rgba(27, 51, 74, 0.95);
+}
+
+.gameOverReason {
+    margin: 0;
+    text-align: center;
+    font-size: clamp(0.8rem, 2vw, 1.02rem);
+    color: #f4fbff;
+    text-shadow:
+        0 0 8px rgba(135, 206, 235, 0.55),
+        0 2px 0 rgba(24, 42, 61, 0.95);
 }
 
 .scoreboardSection {
-    margin-top: 24px;
-    padding: 18px 22px;
-    background-color: #fff8e7;
-    border: 2px solid #f1d27a;
-    border-radius: 14px;
-    text-align: left;
+    position: relative;
+    width: min(100%, 248px);
+    margin-top: 0;
+    padding: 9px;
+    border-radius: 28px;
+    background:
+        linear-gradient(180deg, rgba(163, 211, 240, 0.26), rgba(62, 103, 137, 0.28)),
+        linear-gradient(180deg, rgba(113, 163, 201, 0.46), rgba(45, 76, 103, 0.86));
+    box-shadow:
+        inset 0 0 24px rgba(223, 246, 255, 0.15),
+        0 12px 24px rgba(0, 0, 0, 0.25);
+}
+
+.scoreboardSection::before {
+    content: "";
+    position: absolute;
+    top: -6px;
+    left: 18px;
+    right: 18px;
+    height: 14px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(218, 238, 251, 0.92));
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.16);
+}
+
+.scoreboardInner {
+    padding: 14px 10px 10px;
+    border-radius: 20px;
+    border: 4px solid rgba(103, 92, 73, 0.65);
+    background:
+        linear-gradient(180deg, rgba(200, 230, 250, 0.42), rgba(93, 137, 173, 0.4)),
+        linear-gradient(180deg, rgba(128, 176, 210, 0.36), rgba(59, 96, 128, 0.78));
+    box-shadow:
+        inset 0 0 0 3px rgba(216, 236, 247, 0.16),
+        inset 0 0 22px rgba(217, 246, 255, 0.12);
 }
 
 .scoreboardSection h2 {
-    margin: 0 0 12px 0;
-    color: #7a5a00;
-    font-size: 24px;
-    font-family: Arial, sans-serif;
+    margin: 0 0 8px;
+    text-align: center;
+    font-family: 'Cinzel Decorative', 'Times New Roman', serif;
+    font-size: clamp(0.95rem, 2.5vw, 1.3rem);
+    color: #f3fbff;
+    text-shadow:
+        0 0 8px rgba(151, 226, 255, 0.5),
+        0 3px 0 rgba(32, 55, 78, 0.95);
 }
 
 #bestScoresList {
     margin: 0;
-    padding-left: 28px;
-    color: #333;
-    font-size: 18px;
-    font-family: Arial, sans-serif;
+    padding-left: 22px;
+    color: #f9fcff;
+    font-size: clamp(0.78rem, 1.8vw, 0.96rem);
+    line-height: 1.02;
+    text-shadow:
+        0 2px 0 rgba(26, 43, 62, 0.95),
+        0 0 6px rgba(135, 207, 235, 0.18);
 }
 
 #bestScoresList li {
-    margin: 8px 0;
+    margin: 2px 0;
 }
 
-@keyframes slideIn {
-    from {
-        transform: translateY(-50px);
+.playAgainBtn {
+    margin-top: 2px;
+    min-width: min(58vw, 170px);
+    padding: 8px 16px;
+    border-radius: 16px;
+    border: 2px solid rgba(190, 230, 255, 0.5);
+    cursor: pointer;
+    font-family: 'Cinzel Decorative', 'Times New Roman', serif;
+    font-size: clamp(0.78rem, 1.9vw, 0.95rem);
+    color: #f5fbff;
+    background:
+        linear-gradient(180deg, rgba(181, 214, 236, 0.95), rgba(98, 128, 152, 0.96) 55%, rgba(72, 93, 114, 0.98)),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 55%);
+    box-shadow:
+        inset 0 0 0 2px rgba(255, 255, 255, 0.12),
+        inset 0 8px 16px rgba(228, 245, 255, 0.15),
+        0 10px 18px rgba(0, 0, 0, 0.28),
+        0 0 14px rgba(116, 206, 255, 0.24);
+    text-shadow:
+        0 0 8px rgba(151, 228, 255, 0.35),
+        0 2px 0 rgba(34, 53, 73, 0.92);
+    transition:
+        transform 0.2s ease,
+        filter 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.playAgainBtn:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.06);
+    box-shadow:
+        inset 0 0 0 2px rgba(255, 255, 255, 0.16),
+        inset 0 10px 18px rgba(228, 245, 255, 0.18),
+        0 14px 24px rgba(0, 0, 0, 0.32),
+        0 0 18px rgba(116, 206, 255, 0.34);
+}
+
+.playAgainBtn:active {
+    transform: translateY(1px) scale(0.99);
+}
+
+@keyframes boardPopIn {
+    0% {
+        transform: translateY(-120px) scale(0.82);
         opacity: 0;
     }
-    to {
-        transform: translateY(0);
+    65% {
+        transform: translateY(14px) scale(1.03);
+        opacity: 1;
+    }
+    100% {
+        transform: translateY(0) scale(1);
         opacity: 1;
     }
 }
 
-.gameOverModal h1 {
-    color: #FF6B6B;
-    font-size: 48px;
-    margin: 0 0 20px 0;
-    font-family: Arial, sans-serif;
-}
+@media (max-width: 640px) {
+    #gameOverScreen {
+        padding: 8px;
+    }
 
-.gameOverModal p {
-    color: #333;
-    font-size: 20px;
-    margin: 10px 0;
-    font-family: Arial, sans-serif;
-}
+    .gameOverModal {
+        width: min(90vw, 320px);
+        max-height: calc(100vh - 16px);
+        border-radius: 24px;
+    }
 
-.playAgainBtn {
-    margin-top: 30px;
-    padding: 15px 40px;
-    font-size: 18px;
-    background-color: #4CAF50;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: bold;
-    transition: background-color 0.3s ease;
-}
+    .gameOverContent {
+        padding: 14px 12px 12px;
+        gap: 7px;
+    }
 
-.playAgainBtn:hover {
-    background-color: #45a049;
-}
+    .scoreboardSection {
+        width: 100%;
+        padding: 8px;
+    }
 
-.playAgainBtn:active {
-    transform: scale(0.98);
+    .scoreboardInner {
+        padding: 12px 9px 10px;
+    }
+
+    #bestScoresList {
+        padding-left: 20px;
+    }
 }
