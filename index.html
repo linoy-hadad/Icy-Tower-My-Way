@@ -26,6 +26,8 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const BEST_SCORES_KEY = 'icyTowerBestScores';
+        const PLAYER_SPRITE_WIDTH = 56;
+        const PLAYER_SPRITE_HEIGHT = 56;
 
         const TARGET_FPS = 60;
         const FRAME_TIME = 1000 / TARGET_FPS;
@@ -57,6 +59,10 @@
         let currentPlatform = null;
         let platformCounter = 0;
         let gameState = "playing"; // "playing" or "gameOver"
+        const playerFrontImage = new Image();
+        const playerBackImage = new Image();
+        playerFrontImage.src = './assets/player-front.png';
+        playerBackImage.src = './assets/player-back.png';
 
         function loadBestScores() {
             const rawScores = sessionStorage.getItem(BEST_SCORES_KEY);
@@ -636,8 +642,22 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             // Draw player
-            ctx.fillStyle = 'red';
-            ctx.fillRect(player.x, player.y, player.width, player.height);
+            const activePlayerImage = player.jumping ? playerBackImage : playerFrontImage;
+            const spriteX = player.x - (PLAYER_SPRITE_WIDTH - player.width) / 2;
+            const spriteY = player.y - (PLAYER_SPRITE_HEIGHT - player.height);
+
+            if (activePlayerImage.complete && activePlayerImage.naturalWidth > 0) {
+                ctx.drawImage(
+                    activePlayerImage,
+                    spriteX,
+                    spriteY,
+                    PLAYER_SPRITE_WIDTH,
+                    PLAYER_SPRITE_HEIGHT
+                );
+            } else {
+                ctx.fillStyle = 'red';
+                ctx.fillRect(player.x, player.y, player.width, player.height);
+            }
 
             // Draw platforms
             ctx.fillStyle = 'black';
