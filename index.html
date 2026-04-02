@@ -12,12 +12,17 @@
         <div class="gameOverModal">
             <h1>Game Over!</h1>
             <p id="gameOverMessage">You hit an enemy!</p>
+            <div class="scoreboardSection">
+                <h2>Best Scores</h2>
+                <ol id="bestScoresList"></ol>
+            </div>
             <button class="playAgainBtn" id="playAgainBtn">Play Again</button>
         </div>
     </div>
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
+        const BEST_SCORES_KEY = 'icyTowerBestScores';
 
         const TARGET_FPS = 60;
         const FRAME_TIME = 1000 / TARGET_FPS;
@@ -49,6 +54,68 @@
         let currentPlatform = null;
         let platformCounter = 0;
         let gameState = "playing"; // "playing" or "gameOver"
+
+        function loadBestScores() {
+            const rawScores = sessionStorage.getItem(BEST_SCORES_KEY);
+
+            if (!rawScores) {
+                return [];
+            }
+
+            try {
+                const parsedScores = JSON.parse(rawScores);
+                if (!Array.isArray(parsedScores)) {
+                    return [];
+                }
+
+                return parsedScores
+                    .map(Number)
+                    .filter(Number.isFinite)
+                    .sort((a, b) => b - a)
+                    .slice(0, 10);
+            } catch (error) {
+                return [];
+            }
+        }
+
+        function saveBestScores(scores) {
+            sessionStorage.setItem(BEST_SCORES_KEY, JSON.stringify(scores));
+        }
+
+        function addScoreToBestScores(newScore) {
+            const bestScores = loadBestScores();
+            bestScores.push(newScore);
+            const uniqueScores = [...new Set(bestScores)].sort((a, b) => b - a);
+            const topTenScores = uniqueScores.slice(0, 10);
+            saveBestScores(topTenScores);
+            return topTenScores;
+        }
+
+        function renderBestScores(scores) {
+            const bestScoresList = document.getElementById('bestScoresList');
+            bestScoresList.innerHTML = '';
+
+            if (scores.length === 0) {
+                const emptyItem = document.createElement('li');
+                emptyItem.textContent = 'No scores yet';
+                bestScoresList.appendChild(emptyItem);
+                return;
+            }
+
+            scores.forEach((savedScore, index) => {
+                const scoreItem = document.createElement('li');
+                scoreItem.textContent = index === 0
+                    ? `${savedScore} crown`
+                    : `${savedScore}`;
+
+                if (index === 0) {
+                    scoreItem.setAttribute('aria-label', `Best score ${savedScore}`);
+                    scoreItem.textContent = `${savedScore} 👑`;
+                }
+
+                bestScoresList.appendChild(scoreItem);
+            });
+        }
 
         function clamp(value, min, max) {
             return Math.min(Math.max(value, min), max);
@@ -443,7 +510,9 @@
 
         function endGame(message) {
             gameState = "gameOver";
+            const bestScores = addScoreToBestScores(score);
             document.getElementById('gameOverMessage').textContent = message;
+            renderBestScores(bestScores);
             document.getElementById('gameOverScreen').classList.add('show');
         }
 
