@@ -42,6 +42,11 @@
         const MOVING_PLATFORM_AMPLITUDE = 24;
         const MOVING_PLATFORM_SPEED = 0.025;
         const PLATFORM_FALL_DELAY_FRAMES = 240;
+        const FALLING_PLATFORM_GRAVITY = 0.9;
+        const INITIAL_PLATFORM_FALL_VELOCITY = 2;
+        const STAR_PLATFORM_CHANCE = 0.07;
+        const POWER_UP_DURATION_MS = 6000;
+        const STAR_SIZE = 44;
 
         const TARGET_FPS = 60;
         const FRAME_TIME = 1000 / TARGET_FPS;
@@ -67,24 +72,33 @@
         let platforms = [];
         let enemies = [];
         let bullets = [];
+        let stars = [];
         let sceneInitialized = false;
         let score = 0;
         let lastLandedPlatform = null;
         let currentPlatform = null;
         let platformCounter = 0;
         let gameState = "playing"; // "playing" or "gameOver"
+        let playerPoweredUp = false;
+        let powerUpEndTime = 0;
         const playerFrontImage = new Image();
         const playerBackImage = new Image();
+        const playerStarFrontImage = new Image();
+        const playerStarBackImage = new Image();
         const platformImage = new Image();
         const enemyNoGunImage = new Image();
         const enemyWithGunImage = new Image();
         const bulletImage = new Image();
+        const starPowerupImage = new Image();
         playerFrontImage.src = './assets/player-front.png';
         playerBackImage.src = './assets/player-back.png';
+        playerStarFrontImage.src = './assets/player-star-front.png';
+        playerStarBackImage.src = './assets/player-star-back.png';
         platformImage.src = './assets/platform.png';
         enemyNoGunImage.src = './assets/enemy-no-gun.png';
         enemyWithGunImage.src = './assets/enemy-with-gun.png';
         bulletImage.src = './assets/bullet.png';
+        starPowerupImage.src = './assets/star-powerup.png';
 
         function loadBestScores() {
             const rawScores = sessionStorage.getItem(BEST_SCORES_KEY);
@@ -198,6 +212,16 @@
             };
         }
 
+        function createStar(platform) {
+            return {
+                x: platform.x + platform.width / 2 - STAR_SIZE / 2,
+                y: platform.y - STAR_SIZE - 18,
+                width: STAR_SIZE,
+                height: STAR_SIZE,
+                platformId: platform.id
+            };
+        }
+
         function getPlatformWidth() {
             return clamp(canvas.width * 0.18, 110, 220);
         }
@@ -306,6 +330,13 @@
             }
         }
 
+        function maybeSpawnStar(platform) {
+            const hasEnemy = enemies.some(enemy => enemy.platformId === platform.id);
+            if (!platform.isMoving && !hasEnemy && Math.random() < STAR_PLATFORM_CHANCE) {
+                stars.push(createStar(platform));
+            }
+        }
+
         // Treat nearby platforms as overlapping as well, so jumps stay readable.
         function platformsOverlap(platformA, platformB) {
             const verticalGap = 14;
@@ -400,6 +431,7 @@
             // Remove associated enemy BEFORE changing platform ID
             const oldPlatformId = platform.id;
             enemies = enemies.filter(enemy => enemy.platformId !== oldPlatformId);
+            stars = stars.filter(star => star.platformId !== oldPlatformId);
 
             platform.x = nextPlatform.x;
             platform.y = nextPlatform.y;
@@ -418,11 +450,13 @@
             platform.id = platformCounter;
 
             maybeSpawnEnemy(platform);
+            maybeSpawnStar(platform);
         }
 
         function generatePlatforms() {
             platforms = [];
             enemies = [];
+            stars = [];
             const platformCount = getPlatformCount();
             const firstPlatformY = canvas.height - 40;
             const firstPlatformX = player.x - getPlatformWidth() / 2 + player.width / 2;
@@ -441,6 +475,7 @@
                 nextPlatform.id = platformCounter;
                 platforms.push(nextPlatform);
                 maybeSpawnEnemy(nextPlatform);
+                maybeSpawnStar(nextPlatform);
 
                 previousPlatform = nextPlatform;
             }
@@ -541,6 +576,45 @@
             });
         }
 
+        function updateStars() {
+            stars = stars.filter(star => {
+                const basePlatform = platforms.find(platform => platform.id === star.platformId);
+
+                if (!basePlatform || basePlatform.y >= canvas.height) {
+                    return false;
+                }
+
+                star.x = basePlatform.x + basePlatform.width / 2 - star.width / 2;
+                star.y = basePlatform.y - star.height - 18;
+                return true;
+            });
+        }
+
+        function updatePowerUpState() {
+            if (playerPoweredUp && Date.now() >= powerUpEndTime) {
+                playerPoweredUp = false;
+                powerUpEndTime = 0;
+            }
+        }
+
+        function checkStarCollision() {
+            stars = stars.filter(star => {
+                const isColliding =
+                    player.x < star.x + star.width &&
+                    player.x + player.width > star.x &&
+                    player.y < star.y + star.height &&
+                    player.y + player.height > star.y;
+
+                if (isColliding) {
+                    playerPoweredUp = true;
+                    powerUpEndTime = Date.now() + POWER_UP_DURATION_MS;
+                    return false;
+                }
+
+                return true;
+            });
+        }
+
         function updateBullets() {
             bullets = bullets.filter(bullet => {
                 bullet.x += bullet.velX;
@@ -559,8 +633,9 @@
                     player.y < bullet.y + bullet.height &&
                     player.y + player.height > bullet.y
                 ) {
-                    // Bullet hit player - game over
-                    endGame("You got hit by a bullet!");
+                    if (!playerPoweredUp) {
+                        endGame("You got hit by a bullet!");
+                    }
                     return false; // Remove this bullet
                 }
                 return true; // Keep this bullet
@@ -615,17 +690,56 @@
             });
         }
 
+        function drawStars() {
+            stars.forEach(star => {
+                const pulse = 1 + Math.sin(Date.now() / 180) * 0.08;
+                const drawWidth = star.width * pulse;
+                const drawHeight = star.height * pulse;
+                const drawX = star.x - (drawWidth - star.width) / 2;
+                const drawY = star.y - (drawHeight - star.height) / 2;
+
+                ctx.save();
+                ctx.shadowColor = 'rgba(220, 245, 255, 0.95)';
+                ctx.shadowBlur = 14 + ((pulse - 1) * 40);
+
+                if (starPowerupImage.complete && starPowerupImage.naturalWidth > 0) {
+                    ctx.drawImage(
+                        starPowerupImage,
+                        drawX,
+                        drawY,
+                        drawWidth,
+                        drawHeight
+                    );
+                } else {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.beginPath();
+                    ctx.arc(drawX + drawWidth / 2, drawY + drawHeight / 2, drawWidth / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                ctx.restore();
+            });
+        }
+
         function checkEnemyCollision() {
-            enemies.forEach(enemy => {
+            enemies = enemies.filter(enemy => {
                 if (
                     player.x < enemy.x + enemy.width &&
                     player.x + player.width > enemy.x &&
                     player.y < enemy.y + enemy.height &&
                     player.y + player.height > enemy.y
                 ) {
-                    // Collision detected - game over
+                    if (playerPoweredUp) {
+                        bullets = bullets.filter(bullet => {
+                            const enemyPlatform = platforms.find(platform => platform.id === enemy.platformId);
+                            return !enemyPlatform || bullet.y < enemyPlatform.y - 20;
+                        });
+                        return false;
+                    }
+
                     endGame("You hit an enemy!");
                 }
+                return true;
             });
         }
 
@@ -643,11 +757,14 @@
             currentPlatform = null;
             gameState = "playing";
             platformCounter = 0;
+            playerPoweredUp = false;
+            powerUpEndTime = 0;
 
             // Clear platforms and enemies
             platforms = [];
             enemies = [];
             bullets = [];
+            stars = [];
 
             // Generate new platforms
             generatePlatforms();
@@ -718,7 +835,9 @@
                 player.velX = 0;
             }
 
+            updatePowerUpState();
             updateMovingPlatforms();
+            updateStars();
 
             // Platform collision
             platforms.forEach(platform => {
@@ -762,6 +881,14 @@
                     platform.timeOnPlatform++;
                     if (platform.timeOnPlatform >= PLATFORM_FALL_DELAY_FRAMES) { // 4 seconds at 60 FPS
                         platform.isFalling = true;
+                        platform.fallVelocity = INITIAL_PLATFORM_FALL_VELOCITY;
+
+                        if (platform === currentPlatform) {
+                            currentPlatform = null;
+                            player.jumping = true;
+                            player.y -= 2;
+                            player.velY = Math.max(player.velY, 1.5);
+                        }
                     }
                 } else if (platform !== landedPlatform) {
                     // Player left this platform, reset timer
@@ -770,7 +897,7 @@
                 
                 // Make falling platforms accelerate downward
                 if (platform.isFalling) {
-                    platform.fallVelocity += gravity;
+                    platform.fallVelocity += FALLING_PLATFORM_GRAVITY;
                     platform.y += platform.fallVelocity;
                 }
             });
@@ -778,6 +905,7 @@
             // Update enemies and check collisions
             updateEnemies();
             updateBullets();
+            checkStarCollision();
             checkEnemyCollision();
             checkBulletCollision();
         }
@@ -786,7 +914,9 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             // Draw player
-            const activePlayerImage = player.jumping ? playerBackImage : playerFrontImage;
+            const activePlayerImage = playerPoweredUp
+                ? (player.jumping ? playerStarBackImage : playerStarFrontImage)
+                : (player.jumping ? playerBackImage : playerFrontImage);
             const spriteX = player.x - (PLAYER_SPRITE_WIDTH - player.width) / 2;
             const spriteY = player.y - (PLAYER_SPRITE_HEIGHT - player.height) - PLAYER_SPRITE_VERTICAL_OFFSET;
 
@@ -841,6 +971,9 @@
 
             // Draw bullets
             drawBullets();
+
+            // Draw stars
+            drawStars();
 
             // Draw score
             ctx.fillStyle = 'black';
