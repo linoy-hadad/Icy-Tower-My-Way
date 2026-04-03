@@ -14,6 +14,27 @@
         <source src="./assets/background-video.mp4" type="video/mp4">
     </video>
     <canvas id="gameCanvas"></canvas>
+    <div id="startScreen">
+        <div class="startScreenOverlay"></div>
+        <div class="startScreenContent">
+            <h1 class="startTitle">Icy Tower</h1>
+            <p class="startSubtitle">Choose how you want to play.</p>
+            <div class="startActions">
+                <button class="menuBtn primary" id="startBtn">Start</button>
+                <button class="menuBtn secondary" id="startCameraBtn">Start with Camera</button>
+            </div>
+            <p id="cameraStatusMessage" class="cameraStatusMessage"></p>
+        </div>
+    </div>
+    <div id="cameraHud">
+        <video id="cameraPreview" autoplay muted playsinline></video>
+        <p id="cameraHudLabel">Camera Mode</p>
+        <div id="cameraHudRules">
+            <p>Both hands up: Jump</p>
+            <p>Left hand up: Move left</p>
+            <p>Right hand up: Move right</p>
+        </div>
+    </div>
     <div id="gameOverScreen">
         <div class="gameOverModal">
             <div class="gameOverContent">
@@ -25,7 +46,10 @@
                         <ol id="bestScoresList"></ol>
                     </div>
                 </div>
-                <button class="playAgainBtn" id="playAgainBtn">Play Again</button>
+                <div class="gameOverActions">
+                    <button class="playAgainBtn" id="playAgainBtn">Play Again</button>
+                    <button class="playAgainBtn secondaryBtn" id="backToMenuBtn">Back to Menu</button>
+                </div>
             </div>
         </div>
     </div>
@@ -49,6 +73,13 @@
         const STAR_SIZE = 44;
         const SPRING_PLATFORM_CHANCE = 0.04;
         const SPRING_SIZE = 52;
+        const MEDIAPIPE_WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm';
+        const HAND_LANDMARKER_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+        const HAND_RAISE_THRESHOLD = 0.58;
+        const HAND_DIRECTION_CENTER_MIN = 0.4;
+        const HAND_DIRECTION_CENTER_MAX = 0.6;
+        const CAMERA_MOVE_ACCELERATION = 0.35;
+        const CAMERA_MOVE_MAX_SPEED = 2.5;
 
         const TARGET_FPS = 60;
         const FRAME_TIME = 1000 / TARGET_FPS;
@@ -82,10 +113,23 @@
         let lastLandedPlatform = null;
         let currentPlatform = null;
         let platformCounter = 0;
-        let gameState = "playing"; // "playing" or "gameOver"
+        let gameState = "menu"; // "menu", "playing" or "gameOver"
         let playerPoweredUp = false;
         let powerUpEndTime = 0;
         let playerHasBoostedJump = false;
+        let currentControlMode = 'menu';
+        let handLandmarker = null;
+        let cameraStream = null;
+        let cameraAnimationFrameId = 0;
+        let lastCameraVideoTime = -1;
+        let cameraModeStarting = false;
+        let handControlState = {
+            leftRaised: false,
+            rightRaised: false,
+            bothRaised: false,
+            jumpDirection: 0
+        };
+        let previousBothHandsRaised = false;
         const playerFrontImage = new Image();
         const playerBackImage = new Image();
         const playerStarFrontImage = new Image();
@@ -96,6 +140,13 @@
         const bulletImage = new Image();
         const starPowerupImage = new Image();
         const springPowerupImage = new Image();
+        const startScreen = document.getElementById('startScreen');
+        const startBtn = document.getElementById('startBtn');
+        const startCameraBtn = document.getElementById('startCameraBtn');
+        const cameraStatusMessage = document.getElementById('cameraStatusMessage');
+        const cameraHud = document.getElementById('cameraHud');
+        const cameraPreview = document.getElementById('cameraPreview');
+        const backToMenuBtn = document.getElementById('backToMenuBtn');
         playerFrontImage.src = './assets/player-front.png';
         playerBackImage.src = './assets/player-back.png';
         playerStarFrontImage.src = './assets/player-star-front.png';
@@ -167,6 +218,233 @@
 
                 bestScoresList.appendChild(scoreItem);
             });
+        }
+
+        function setCameraStatus(message = '') {
+            cameraStatusMessage.textContent = message;
+        }
+
+        function resetHandControlState() {
+            handControlState.leftRaised = false;
+            handControlState.rightRaised = false;
+            handControlState.bothRaised = false;
+            handControlState.jumpDirection = 0;
+        }
+
+        function showStartScreen() {
+            startScreen.classList.remove('hidden');
+        }
+
+        function hideStartScreen() {
+            startScreen.classList.add('hidden');
+        }
+
+        async function initializeHandLandmarker() {
+            if (handLandmarker) {
+                return handLandmarker;
+            }
+
+            const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest');
+            const filesetResolver = await vision.FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_URL);
+            handLandmarker = await vision.HandLandmarker.createFromOptions(filesetResolver, {
+                baseOptions: {
+                    modelAssetPath: HAND_LANDMARKER_MODEL_URL,
+                    delegate: 'GPU'
+                },
+                runningMode: 'VIDEO',
+                numHands: 2
+            });
+
+            return handLandmarker;
+        }
+
+        async function startCameraStream() {
+            cameraStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: 'user',
+                    width: { ideal: 960 },
+                    height: { ideal: 540 }
+                },
+                audio: false
+            });
+
+            cameraPreview.srcObject = cameraStream;
+            await cameraPreview.play();
+        }
+
+        function stopCameraMode() {
+            if (cameraAnimationFrameId) {
+                cancelAnimationFrame(cameraAnimationFrameId);
+                cameraAnimationFrameId = 0;
+            }
+
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                cameraStream = null;
+            }
+
+            cameraPreview.srcObject = null;
+            cameraHud.classList.remove('show');
+            lastCameraVideoTime = -1;
+            cameraModeStarting = false;
+            resetHandControlState();
+        }
+
+        function triggerJump(source = 'keyboard') {
+            if (gameState !== 'playing' || player.jumping) {
+                return;
+            }
+
+            if (source === 'keyboard' && currentControlMode === 'camera' && handControlState.bothRaised) {
+                return;
+            }
+
+            const jumpStrength = playerHasBoostedJump ? BOOSTED_JUMP : baseJump;
+            player.jumping = true;
+            player.velY = jumpStrength - Math.abs(player.velX);
+            playerHasBoostedJump = false;
+        }
+
+        function processHandResults(results) {
+            const raisedHands = [];
+
+            results.landmarks.forEach((landmarks, index) => {
+                const wrist = landmarks[0];
+                const middleMcp = landmarks[9];
+                const palmY = (wrist.y + middleMcp.y) / 2;
+                const palmX = (wrist.x + middleMcp.x) / 2;
+                const displayPalmX = 1 - palmX;
+                const isRaised = palmY < HAND_RAISE_THRESHOLD;
+
+                if (isRaised) {
+                    raisedHands.push(displayPalmX);
+                }
+            });
+
+            if (raisedHands.length >= 2) {
+                const sortedHands = raisedHands.sort((a, b) => a - b);
+                const handsCenterX = (sortedHands[0] + sortedHands[1]) / 2;
+
+                handControlState.leftRaised = true;
+                handControlState.rightRaised = true;
+                handControlState.bothRaised = true;
+
+                if (handsCenterX < HAND_DIRECTION_CENTER_MIN) {
+                    handControlState.jumpDirection = -1;
+                } else if (handsCenterX > HAND_DIRECTION_CENTER_MAX) {
+                    handControlState.jumpDirection = 1;
+                } else {
+                    handControlState.jumpDirection = 0;
+                }
+            } else if (raisedHands.length === 1) {
+                const handX = raisedHands[0];
+                handControlState.leftRaised = handX < 0.5;
+                handControlState.rightRaised = handX >= 0.5;
+                handControlState.bothRaised = false;
+                handControlState.jumpDirection = 0;
+            } else {
+                handControlState.leftRaised = false;
+                handControlState.rightRaised = false;
+                handControlState.bothRaised = false;
+                handControlState.jumpDirection = 0;
+            }
+        }
+
+        async function detectHandsFrame() {
+            if (!handLandmarker || !cameraPreview.srcObject || gameState === 'menu') {
+                return;
+            }
+
+            if (cameraPreview.readyState >= 2 && cameraPreview.currentTime !== lastCameraVideoTime) {
+                lastCameraVideoTime = cameraPreview.currentTime;
+                const results = handLandmarker.detectForVideo(cameraPreview, performance.now());
+                processHandResults(results);
+            }
+
+            cameraAnimationFrameId = requestAnimationFrame(detectHandsFrame);
+        }
+
+        function getResolvedMovementInput() {
+            const keyboardInput = {
+                left: Boolean(keys[37]),
+                right: Boolean(keys[39]),
+                cameraControlled: false
+            };
+
+            if (currentControlMode !== 'camera') {
+                return keyboardInput;
+            }
+
+            const hasHandOverride = handControlState.leftRaised || handControlState.rightRaised || handControlState.bothRaised;
+            if (!hasHandOverride) {
+                return keyboardInput;
+            }
+
+            if (handControlState.bothRaised) {
+                return {
+                    left: handControlState.jumpDirection < 0,
+                    right: handControlState.jumpDirection > 0,
+                    cameraControlled: true
+                };
+            }
+
+            return {
+                left: handControlState.leftRaised,
+                right: handControlState.rightRaised,
+                cameraControlled: true
+            };
+        }
+
+        function startGameplay(mode) {
+            if (mode === 'keyboard') {
+                stopCameraMode();
+            }
+
+            currentControlMode = mode;
+            hideStartScreen();
+            setCameraStatus('');
+            resetGame();
+            gameState = 'playing';
+        }
+
+        async function startWithCameraMode() {
+            if (cameraModeStarting) {
+                return;
+            }
+
+            cameraModeStarting = true;
+            setCameraStatus('Starting camera...');
+
+            try {
+                if (!navigator.mediaDevices?.getUserMedia) {
+                    throw new Error('This browser does not support webcam access.');
+                }
+
+                await initializeHandLandmarker();
+                await startCameraStream();
+                cameraHud.classList.add('show');
+                currentControlMode = 'camera';
+                hideStartScreen();
+                setCameraStatus('');
+                resetGame();
+                gameState = 'playing';
+                cameraAnimationFrameId = requestAnimationFrame(detectHandsFrame);
+            } catch (error) {
+                stopCameraMode();
+                showStartScreen();
+                setCameraStatus(error.message || 'Could not start the camera. You can still use Start.');
+            } finally {
+                cameraModeStarting = false;
+            }
+        }
+
+        function backToMenu() {
+            resetGame();
+            gameState = 'menu';
+            currentControlMode = 'menu';
+            stopCameraMode();
+            showStartScreen();
+            setCameraStatus('');
         }
 
         function clamp(value, min, max) {
@@ -553,10 +831,7 @@
         window.addEventListener('keydown', function(e) {
             keys[e.keyCode] = true;
             if (e.keyCode === 32 && !player.jumping) {
-                const jumpStrength = playerHasBoostedJump ? BOOSTED_JUMP : baseJump;
-                player.jumping = true;
-                player.velY = jumpStrength - Math.abs(player.velX);
-                playerHasBoostedJump = false;
+                triggerJump('keyboard');
             }
         });
 
@@ -854,6 +1129,8 @@
             playerPoweredUp = false;
             powerUpEndTime = 0;
             playerHasBoostedJump = false;
+            resetHandControlState();
+            keys = [];
 
             // Clear platforms and enemies
             platforms = [];
@@ -881,16 +1158,26 @@
             if (gameState !== "playing") return;
 
             let landedPlatform = null;
+            const movementInput = getResolvedMovementInput();
+
+            if (currentControlMode === 'camera' && handControlState.bothRaised) {
+                triggerJump('camera');
+            }
+
             // Horizontal movement input
-            if (keys[39]) { // right
-                if (player.velX < player.speed) {
-                    player.velX += 1;
+            if (movementInput.right) { // right
+                const acceleration = movementInput.cameraControlled ? CAMERA_MOVE_ACCELERATION : 1;
+                const maxSpeed = movementInput.cameraControlled ? CAMERA_MOVE_MAX_SPEED : player.speed;
+                if (player.velX < maxSpeed) {
+                    player.velX += acceleration;
                 }
             }
 
-            if (keys[37]) { // left
-                if (player.velX > -player.speed) {
-                    player.velX -= 1;
+            if (movementInput.left) { // left
+                const acceleration = movementInput.cameraControlled ? CAMERA_MOVE_ACCELERATION : 1;
+                const maxSpeed = movementInput.cameraControlled ? CAMERA_MOVE_MAX_SPEED : player.speed;
+                if (player.velX > -maxSpeed) {
+                    player.velX -= acceleration;
                 }
             }
 
@@ -1107,6 +1394,13 @@
 
         // Event listeners
         document.getElementById('playAgainBtn').addEventListener('click', resetGame);
+        startBtn.addEventListener('click', function() {
+            startGameplay('keyboard');
+        });
+        startCameraBtn.addEventListener('click', function() {
+            startWithCameraMode();
+        });
+        backToMenuBtn.addEventListener('click', backToMenu);
 
         requestAnimationFrame(gameLoop);
     </script>
