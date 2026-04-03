@@ -47,6 +47,8 @@
         const STAR_PLATFORM_CHANCE = 0.07;
         const POWER_UP_DURATION_MS = 6000;
         const STAR_SIZE = 44;
+        const SPRING_PLATFORM_CHANCE = 0.04;
+        const SPRING_SIZE = 52;
 
         const TARGET_FPS = 60;
         const FRAME_TIME = 1000 / TARGET_FPS;
@@ -55,6 +57,7 @@
         const gravity = 0.5;
         const friction = 0.8;
         const baseJump = -10;
+        const BOOSTED_JUMP = baseJump * 2;
 
         // Player
         let player = {
@@ -73,6 +76,7 @@
         let enemies = [];
         let bullets = [];
         let stars = [];
+        let springs = [];
         let sceneInitialized = false;
         let score = 0;
         let lastLandedPlatform = null;
@@ -81,6 +85,7 @@
         let gameState = "playing"; // "playing" or "gameOver"
         let playerPoweredUp = false;
         let powerUpEndTime = 0;
+        let playerHasBoostedJump = false;
         const playerFrontImage = new Image();
         const playerBackImage = new Image();
         const playerStarFrontImage = new Image();
@@ -90,6 +95,7 @@
         const enemyWithGunImage = new Image();
         const bulletImage = new Image();
         const starPowerupImage = new Image();
+        const springPowerupImage = new Image();
         playerFrontImage.src = './assets/player-front.png';
         playerBackImage.src = './assets/player-back.png';
         playerStarFrontImage.src = './assets/player-star-front.png';
@@ -99,6 +105,7 @@
         enemyWithGunImage.src = './assets/enemy-with-gun.png';
         bulletImage.src = './assets/bullet.png';
         starPowerupImage.src = './assets/star-powerup.png';
+        springPowerupImage.src = './assets/spring-powerup.png';
 
         function loadBestScores() {
             const rawScores = sessionStorage.getItem(BEST_SCORES_KEY);
@@ -222,6 +229,16 @@
             };
         }
 
+        function createSpring(platform) {
+            return {
+                x: platform.x + platform.width / 2 - SPRING_SIZE / 2,
+                y: platform.y - SPRING_SIZE - 18,
+                width: SPRING_SIZE,
+                height: SPRING_SIZE,
+                platformId: platform.id
+            };
+        }
+
         function getPlatformWidth() {
             return clamp(canvas.width * 0.18, 110, 220);
         }
@@ -332,8 +349,17 @@
 
         function maybeSpawnStar(platform) {
             const hasEnemy = enemies.some(enemy => enemy.platformId === platform.id);
-            if (!platform.isMoving && !hasEnemy && Math.random() < STAR_PLATFORM_CHANCE) {
+            const hasSpring = springs.some(spring => spring.platformId === platform.id);
+            if (!platform.isMoving && !hasEnemy && !hasSpring && Math.random() < STAR_PLATFORM_CHANCE) {
                 stars.push(createStar(platform));
+            }
+        }
+
+        function maybeSpawnSpring(platform) {
+            const hasEnemy = enemies.some(enemy => enemy.platformId === platform.id);
+            const hasStar = stars.some(star => star.platformId === platform.id);
+            if (!platform.isMoving && !hasEnemy && !hasStar && Math.random() < SPRING_PLATFORM_CHANCE) {
+                springs.push(createSpring(platform));
             }
         }
 
@@ -432,6 +458,7 @@
             const oldPlatformId = platform.id;
             enemies = enemies.filter(enemy => enemy.platformId !== oldPlatformId);
             stars = stars.filter(star => star.platformId !== oldPlatformId);
+            springs = springs.filter(spring => spring.platformId !== oldPlatformId);
 
             platform.x = nextPlatform.x;
             platform.y = nextPlatform.y;
@@ -451,12 +478,14 @@
 
             maybeSpawnEnemy(platform);
             maybeSpawnStar(platform);
+            maybeSpawnSpring(platform);
         }
 
         function generatePlatforms() {
             platforms = [];
             enemies = [];
             stars = [];
+            springs = [];
             const platformCount = getPlatformCount();
             const firstPlatformY = canvas.height - 40;
             const firstPlatformX = player.x - getPlatformWidth() / 2 + player.width / 2;
@@ -476,6 +505,7 @@
                 platforms.push(nextPlatform);
                 maybeSpawnEnemy(nextPlatform);
                 maybeSpawnStar(nextPlatform);
+                maybeSpawnSpring(nextPlatform);
 
                 previousPlatform = nextPlatform;
             }
@@ -523,8 +553,10 @@
         window.addEventListener('keydown', function(e) {
             keys[e.keyCode] = true;
             if (e.keyCode === 32 && !player.jumping) {
+                const jumpStrength = playerHasBoostedJump ? BOOSTED_JUMP : baseJump;
                 player.jumping = true;
-                player.velY = baseJump - Math.abs(player.velX);
+                player.velY = jumpStrength - Math.abs(player.velX);
+                playerHasBoostedJump = false;
             }
         });
 
@@ -590,6 +622,20 @@
             });
         }
 
+        function updateSprings() {
+            springs = springs.filter(spring => {
+                const basePlatform = platforms.find(platform => platform.id === spring.platformId);
+
+                if (!basePlatform || basePlatform.y >= canvas.height) {
+                    return false;
+                }
+
+                spring.x = basePlatform.x + basePlatform.width / 2 - spring.width / 2;
+                spring.y = basePlatform.y - spring.height - 18;
+                return true;
+            });
+        }
+
         function updatePowerUpState() {
             if (playerPoweredUp && Date.now() >= powerUpEndTime) {
                 playerPoweredUp = false;
@@ -608,6 +654,23 @@
                 if (isColliding) {
                     playerPoweredUp = true;
                     powerUpEndTime = Date.now() + POWER_UP_DURATION_MS;
+                    return false;
+                }
+
+                return true;
+            });
+        }
+
+        function checkSpringCollision() {
+            springs = springs.filter(spring => {
+                const isColliding =
+                    player.x < spring.x + spring.width &&
+                    player.x + player.width > spring.x &&
+                    player.y < spring.y + spring.height &&
+                    player.y + player.height > spring.y;
+
+                if (isColliding) {
+                    playerHasBoostedJump = true;
                     return false;
                 }
 
@@ -693,10 +756,11 @@
         function drawStars() {
             stars.forEach(star => {
                 const pulse = 1 + Math.sin(Date.now() / 180) * 0.08;
+                const bobOffset = Math.sin(Date.now() / 260) * 4;
                 const drawWidth = star.width * pulse;
                 const drawHeight = star.height * pulse;
                 const drawX = star.x - (drawWidth - star.width) / 2;
-                const drawY = star.y - (drawHeight - star.height) / 2;
+                const drawY = star.y - (drawHeight - star.height) / 2 + bobOffset;
 
                 ctx.save();
                 ctx.shadowColor = 'rgba(220, 245, 255, 0.95)';
@@ -715,6 +779,36 @@
                     ctx.beginPath();
                     ctx.arc(drawX + drawWidth / 2, drawY + drawHeight / 2, drawWidth / 2, 0, Math.PI * 2);
                     ctx.fill();
+                }
+
+                ctx.restore();
+            });
+        }
+
+        function drawSprings() {
+            springs.forEach(spring => {
+                const pulse = 1 + Math.sin(Date.now() / 210) * 0.06;
+                const bobOffset = Math.sin(Date.now() / 280) * 4;
+                const drawWidth = spring.width * pulse;
+                const drawHeight = spring.height * pulse;
+                const drawX = spring.x - (drawWidth - spring.width) / 2;
+                const drawY = spring.y - (drawHeight - spring.height) / 2 + bobOffset;
+
+                ctx.save();
+                ctx.shadowColor = 'rgba(220, 240, 255, 0.95)';
+                ctx.shadowBlur = 18 + ((pulse - 1) * 50);
+
+                if (springPowerupImage.complete && springPowerupImage.naturalWidth > 0) {
+                    ctx.drawImage(
+                        springPowerupImage,
+                        drawX,
+                        drawY,
+                        drawWidth,
+                        drawHeight
+                    );
+                } else {
+                    ctx.fillStyle = '#dfe8f3';
+                    ctx.fillRect(drawX, drawY, drawWidth, drawHeight);
                 }
 
                 ctx.restore();
@@ -759,12 +853,14 @@
             platformCounter = 0;
             playerPoweredUp = false;
             powerUpEndTime = 0;
+            playerHasBoostedJump = false;
 
             // Clear platforms and enemies
             platforms = [];
             enemies = [];
             bullets = [];
             stars = [];
+            springs = [];
 
             // Generate new platforms
             generatePlatforms();
@@ -838,6 +934,7 @@
             updatePowerUpState();
             updateMovingPlatforms();
             updateStars();
+            updateSprings();
 
             // Platform collision
             platforms.forEach(platform => {
@@ -906,6 +1003,7 @@
             updateEnemies();
             updateBullets();
             checkStarCollision();
+            checkSpringCollision();
             checkEnemyCollision();
             checkBulletCollision();
         }
@@ -974,6 +1072,9 @@
 
             // Draw stars
             drawStars();
+
+            // Draw springs
+            drawSprings();
 
             // Draw score
             ctx.fillStyle = 'black';
