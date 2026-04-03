@@ -4,10 +4,18 @@ html, body {
     width: 100%;
     height: 100%;
     overflow: hidden;
+    overscroll-behavior: none;
 }
 
 body {
     font-family: 'Almendra', Georgia, serif;
+    touch-action: manipulation;
+}
+
+body.mobile-performance {
+    background:
+        linear-gradient(180deg, rgba(31, 53, 77, 0.72), rgba(14, 28, 44, 0.9)),
+        url('./assets/start-menu-background.png') center/cover no-repeat fixed;
 }
 
 #backgroundVideo {
@@ -25,8 +33,9 @@ body {
     z-index: 1;
     display: block;
     width: 100vw;
-    height: 100vh;
+    height: 100dvh;
     background: transparent;
+    touch-action: none;
 }
 
 #startScreen {
@@ -191,6 +200,61 @@ body {
     color: #effbff;
     font-size: 0.85rem;
     text-shadow: 0 2px 0 rgba(24, 42, 61, 0.8);
+}
+
+#touchControls {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    z-index: 1045;
+    display: none;
+    align-items: end;
+    justify-content: space-between;
+    padding: 0 max(14px, env(safe-area-inset-left)) max(0px, env(safe-area-inset-right));
+    pointer-events: none;
+}
+
+#touchControls.show {
+    display: flex;
+}
+
+.touchMoveGroup {
+    display: flex;
+    gap: 12px;
+    pointer-events: auto;
+}
+
+.touchBtn {
+    min-width: 84px;
+    min-height: 84px;
+    padding: 16px 20px;
+    border-radius: 22px;
+    border: 2px solid rgba(198, 232, 255, 0.42);
+    background:
+        linear-gradient(180deg, rgba(28, 54, 82, 0.88), rgba(15, 31, 49, 0.94)),
+        linear-gradient(135deg, rgba(215, 241, 255, 0.12), transparent 60%);
+    color: #f5fdff;
+    font-family: 'Cinzel Decorative', 'Times New Roman', serif;
+    font-size: 0.88rem;
+    text-shadow:
+        0 0 8px rgba(151, 228, 255, 0.22),
+        0 2px 0 rgba(24, 42, 61, 0.88);
+    box-shadow:
+        0 12px 22px rgba(0, 0, 0, 0.24),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    pointer-events: auto;
+    touch-action: none;
+    user-select: none;
+}
+
+.touchBtn.jumpBtn {
+    min-width: 112px;
+}
+
+.touchBtn:active {
+    transform: scale(0.97);
+    filter: brightness(1.08);
 }
 
 #cameraHudRules {
@@ -463,5 +527,75 @@ body {
     #cameraPreview {
         width: 132px;
         height: 88px;
+    }
+
+    #touchControls {
+        padding: 0 max(10px, env(safe-area-inset-left)) max(0px, env(safe-area-inset-right));
+    }
+
+    .touchBtn {
+        min-width: 74px;
+        min-height: 74px;
+        border-radius: 20px;
+        font-size: 0.82rem;
+    }
+
+    .touchBtn.jumpBtn {
+        min-width: 96px;
+    }
+}
+
+@media (orientation: portrait) and (pointer: coarse) {
+    #touchControls {
+        bottom: max(16px, env(safe-area-inset-bottom));
+        padding-left: max(12px, env(safe-area-inset-left));
+        padding-right: max(12px, env(safe-area-inset-right));
+    }
+
+    .touchMoveGroup {
+        gap: 14px;
+    }
+
+    .touchBtn {
+        min-width: 72px;
+        min-height: 72px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+    }
+
+    .touchBtn.jumpBtn {
+        min-width: 92px;
+    }
+
+    #cameraHud {
+        top: max(8px, env(safe-area-inset-top));
+        right: max(8px, env(safe-area-inset-right));
+        left: auto;
+        bottom: auto;
+        max-width: min(34vw, 132px);
+        padding: 6px;
+        gap: 5px;
+    }
+
+    #cameraPreview {
+        width: 100%;
+        height: auto;
+        aspect-ratio: 3 / 2;
+        border-radius: 10px;
+    }
+
+    #cameraHudLabel {
+        font-size: 0.68rem;
+    }
+
+    #cameraHudRules {
+        padding: 6px;
+        border-radius: 10px;
+    }
+
+    #cameraHudRules p {
+        font-size: 0.58rem;
+        line-height: 1.15;
+        margin: 2px 0;
     }
 }

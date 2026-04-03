@@ -35,6 +35,13 @@
             <p>Right hand up: Move right</p>
         </div>
     </div>
+    <div id="touchControls">
+        <div class="touchMoveGroup">
+            <button class="touchBtn" id="touchLeftBtn" aria-label="Move left">Left</button>
+            <button class="touchBtn" id="touchRightBtn" aria-label="Move right">Right</button>
+        </div>
+        <button class="touchBtn jumpBtn" id="touchJumpBtn" aria-label="Jump">Jump</button>
+    </div>
     <div id="gameOverScreen">
         <div class="gameOverModal">
             <div class="gameOverContent">
@@ -80,6 +87,8 @@
         const HAND_DIRECTION_CENTER_MAX = 0.6;
         const CAMERA_MOVE_ACCELERATION = 0.35;
         const CAMERA_MOVE_MAX_SPEED = 2.5;
+        const TOUCH_MOVE_ACCELERATION = 0.55;
+        const TOUCH_MOVE_MAX_SPEED = 3.5;
 
         const TARGET_FPS = 60;
         const FRAME_TIME = 1000 / TARGET_FPS;
@@ -123,13 +132,17 @@
         let cameraAnimationFrameId = 0;
         let lastCameraVideoTime = -1;
         let cameraModeStarting = false;
+        const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
         let handControlState = {
             leftRaised: false,
             rightRaised: false,
             bothRaised: false,
             jumpDirection: 0
         };
-        let previousBothHandsRaised = false;
+        let touchInputState = {
+            left: false,
+            right: false
+        };
         const playerFrontImage = new Image();
         const playerBackImage = new Image();
         const playerStarFrontImage = new Image();
@@ -140,6 +153,7 @@
         const bulletImage = new Image();
         const starPowerupImage = new Image();
         const springPowerupImage = new Image();
+        const backgroundVideo = document.getElementById('backgroundVideo');
         const startScreen = document.getElementById('startScreen');
         const startBtn = document.getElementById('startBtn');
         const startCameraBtn = document.getElementById('startCameraBtn');
@@ -147,6 +161,10 @@
         const cameraHud = document.getElementById('cameraHud');
         const cameraPreview = document.getElementById('cameraPreview');
         const backToMenuBtn = document.getElementById('backToMenuBtn');
+        const touchControls = document.getElementById('touchControls');
+        const touchLeftBtn = document.getElementById('touchLeftBtn');
+        const touchRightBtn = document.getElementById('touchRightBtn');
+        const touchJumpBtn = document.getElementById('touchJumpBtn');
         playerFrontImage.src = './assets/player-front.png';
         playerBackImage.src = './assets/player-back.png';
         playerStarFrontImage.src = './assets/player-star-front.png';
@@ -157,6 +175,8 @@
         bulletImage.src = './assets/bullet.png';
         starPowerupImage.src = './assets/star-powerup.png';
         springPowerupImage.src = './assets/spring-powerup.png';
+
+        applyMobilePerformanceSettings();
 
         function loadBestScores() {
             const rawScores = sessionStorage.getItem(BEST_SCORES_KEY);
@@ -224,6 +244,17 @@
             cameraStatusMessage.textContent = message;
         }
 
+        function updateTouchControlsVisibility() {
+            const shouldShow = isTouchDevice && gameState === 'playing' && !document.getElementById('gameOverScreen').classList.contains('show');
+            touchControls.classList.toggle('show', shouldShow);
+            document.body.classList.toggle('touch-device', isTouchDevice);
+        }
+
+        function resetTouchInputState() {
+            touchInputState.left = false;
+            touchInputState.right = false;
+        }
+
         function resetHandControlState() {
             handControlState.leftRaised = false;
             handControlState.rightRaised = false;
@@ -233,10 +264,22 @@
 
         function showStartScreen() {
             startScreen.classList.remove('hidden');
+            updateTouchControlsVisibility();
         }
 
         function hideStartScreen() {
             startScreen.classList.add('hidden');
+            updateTouchControlsVisibility();
+        }
+
+        function applyMobilePerformanceSettings() {
+            if (!isTouchDevice) {
+                return;
+            }
+
+            backgroundVideo.pause();
+            backgroundVideo.style.display = 'none';
+            document.body.classList.add('mobile-performance');
         }
 
         async function initializeHandLandmarker() {
@@ -288,6 +331,7 @@
             lastCameraVideoTime = -1;
             cameraModeStarting = false;
             resetHandControlState();
+            resetTouchInputState();
         }
 
         function triggerJump(source = 'keyboard') {
@@ -295,7 +339,7 @@
                 return;
             }
 
-            if (source === 'keyboard' && currentControlMode === 'camera' && handControlState.bothRaised) {
+            if (source !== 'camera' && currentControlMode === 'camera' && handControlState.bothRaised) {
                 return;
             }
 
@@ -368,30 +412,39 @@
             const keyboardInput = {
                 left: Boolean(keys[37]),
                 right: Boolean(keys[39]),
-                cameraControlled: false
+                cameraControlled: false,
+                touchControlled: false
+            };
+            const touchInput = {
+                left: touchInputState.left,
+                right: touchInputState.right,
+                cameraControlled: false,
+                touchControlled: true
             };
 
             if (currentControlMode !== 'camera') {
-                return keyboardInput;
+                return touchInput.left || touchInput.right ? touchInput : keyboardInput;
             }
 
             const hasHandOverride = handControlState.leftRaised || handControlState.rightRaised || handControlState.bothRaised;
             if (!hasHandOverride) {
-                return keyboardInput;
+                return touchInput.left || touchInput.right ? touchInput : keyboardInput;
             }
 
             if (handControlState.bothRaised) {
                 return {
                     left: handControlState.jumpDirection < 0,
                     right: handControlState.jumpDirection > 0,
-                    cameraControlled: true
+                    cameraControlled: true,
+                    touchControlled: false
                 };
             }
 
             return {
                 left: handControlState.leftRaised,
                 right: handControlState.rightRaised,
-                cameraControlled: true
+                cameraControlled: true,
+                touchControlled: false
             };
         }
 
@@ -405,6 +458,7 @@
             setCameraStatus('');
             resetGame();
             gameState = 'playing';
+            updateTouchControlsVisibility();
         }
 
         async function startWithCameraMode() {
@@ -428,6 +482,7 @@
                 setCameraStatus('');
                 resetGame();
                 gameState = 'playing';
+                updateTouchControlsVisibility();
                 cameraAnimationFrameId = requestAnimationFrame(detectHandsFrame);
             } catch (error) {
                 stopCameraMode();
@@ -445,6 +500,7 @@
             stopCameraMode();
             showStartScreen();
             setCameraStatus('');
+            updateTouchControlsVisibility();
         }
 
         function clamp(value, min, max) {
@@ -1130,6 +1186,7 @@
             powerUpEndTime = 0;
             playerHasBoostedJump = false;
             resetHandControlState();
+            resetTouchInputState();
             keys = [];
 
             // Clear platforms and enemies
@@ -1144,6 +1201,7 @@
 
             // Hide game over screen
             document.getElementById('gameOverScreen').classList.remove('show');
+            updateTouchControlsVisibility();
         }
 
         function endGame(message) {
@@ -1152,6 +1210,7 @@
             document.getElementById('gameOverMessage').textContent = message;
             renderBestScores(bestScores);
             document.getElementById('gameOverScreen').classList.add('show');
+            updateTouchControlsVisibility();
         }
 
         function updateGame() {
@@ -1166,16 +1225,32 @@
 
             // Horizontal movement input
             if (movementInput.right) { // right
-                const acceleration = movementInput.cameraControlled ? CAMERA_MOVE_ACCELERATION : 1;
-                const maxSpeed = movementInput.cameraControlled ? CAMERA_MOVE_MAX_SPEED : player.speed;
+                const acceleration = movementInput.cameraControlled
+                    ? CAMERA_MOVE_ACCELERATION
+                    : movementInput.touchControlled
+                        ? TOUCH_MOVE_ACCELERATION
+                        : 1;
+                const maxSpeed = movementInput.cameraControlled
+                    ? CAMERA_MOVE_MAX_SPEED
+                    : movementInput.touchControlled
+                        ? TOUCH_MOVE_MAX_SPEED
+                        : player.speed;
                 if (player.velX < maxSpeed) {
                     player.velX += acceleration;
                 }
             }
 
             if (movementInput.left) { // left
-                const acceleration = movementInput.cameraControlled ? CAMERA_MOVE_ACCELERATION : 1;
-                const maxSpeed = movementInput.cameraControlled ? CAMERA_MOVE_MAX_SPEED : player.speed;
+                const acceleration = movementInput.cameraControlled
+                    ? CAMERA_MOVE_ACCELERATION
+                    : movementInput.touchControlled
+                        ? TOUCH_MOVE_ACCELERATION
+                        : 1;
+                const maxSpeed = movementInput.cameraControlled
+                    ? CAMERA_MOVE_MAX_SPEED
+                    : movementInput.touchControlled
+                        ? TOUCH_MOVE_MAX_SPEED
+                        : player.speed;
                 if (player.velX > -maxSpeed) {
                     player.velX -= acceleration;
                 }
@@ -1401,6 +1476,38 @@
             startWithCameraMode();
         });
         backToMenuBtn.addEventListener('click', backToMenu);
+        touchLeftBtn.addEventListener('pointerdown', function(e) {
+            e.preventDefault();
+            touchInputState.left = true;
+        });
+        touchLeftBtn.addEventListener('pointerup', function() {
+            touchInputState.left = false;
+        });
+        touchLeftBtn.addEventListener('pointercancel', function() {
+            touchInputState.left = false;
+        });
+        touchLeftBtn.addEventListener('pointerleave', function() {
+            touchInputState.left = false;
+        });
+
+        touchRightBtn.addEventListener('pointerdown', function(e) {
+            e.preventDefault();
+            touchInputState.right = true;
+        });
+        touchRightBtn.addEventListener('pointerup', function() {
+            touchInputState.right = false;
+        });
+        touchRightBtn.addEventListener('pointercancel', function() {
+            touchInputState.right = false;
+        });
+        touchRightBtn.addEventListener('pointerleave', function() {
+            touchInputState.right = false;
+        });
+
+        touchJumpBtn.addEventListener('pointerdown', function(e) {
+            e.preventDefault();
+            triggerJump('touch');
+        });
 
         requestAnimationFrame(gameLoop);
     </script>
