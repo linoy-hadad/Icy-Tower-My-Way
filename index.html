@@ -75,11 +75,13 @@
         const PLATFORM_FALL_DELAY_FRAMES = 240;
         const FALLING_PLATFORM_GRAVITY = 0.9;
         const INITIAL_PLATFORM_FALL_VELOCITY = 2;
-        const STAR_PLATFORM_CHANCE = 0.07;
+        const STAR_PLATFORM_CHANCE = 0.05;
         const POWER_UP_DURATION_MS = 6000;
         const STAR_SIZE = 44;
-        const SPRING_PLATFORM_CHANCE = 0.04;
+        const SPRING_PLATFORM_CHANCE = 0.05;
         const SPRING_SIZE = 52;
+        const CRACKING_PLATFORM_CHANCE = 0.06;
+        const CRACKING_PLATFORM_DURATION_MS = 750;
         const MEDIAPIPE_WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm';
         const HAND_LANDMARKER_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
         const HAND_RAISE_THRESHOLD = 0.58;
@@ -617,6 +619,10 @@
                 isFalling: false,
                 fallVelocity: 0,
                 isMoving,
+                isCrackingPlatform: !isMoving && (options.isCrackingPlatform ?? (Math.random() < CRACKING_PLATFORM_CHANCE)),
+                crackStarted: false,
+                crackStartTime: 0,
+                crackProgress: 0,
                 moveAmplitude: isMoving ? MOVING_PLATFORM_AMPLITUDE : 0,
                 moveSpeed: isMoving ? MOVING_PLATFORM_SPEED : 0,
                 movePhase: Math.random() * Math.PI * 2
@@ -676,7 +682,7 @@
         }
 
         function maybeSpawnEnemy(platform) {
-            if (!platform.isMoving && getRandomEnemyChance()) {
+            if (!platform.isMoving && !platform.isCrackingPlatform && getRandomEnemyChance()) {
                 enemies.push(createEnemy(platform));
             }
         }
@@ -684,7 +690,7 @@
         function maybeSpawnStar(platform) {
             const hasEnemy = enemies.some(enemy => enemy.platformId === platform.id);
             const hasSpring = springs.some(spring => spring.platformId === platform.id);
-            if (!platform.isMoving && !hasEnemy && !hasSpring && Math.random() < STAR_PLATFORM_CHANCE) {
+            if (!platform.isMoving && !platform.isCrackingPlatform && !hasEnemy && !hasSpring && Math.random() < STAR_PLATFORM_CHANCE) {
                 stars.push(createStar(platform));
             }
         }
@@ -692,7 +698,7 @@
         function maybeSpawnSpring(platform) {
             const hasEnemy = enemies.some(enemy => enemy.platformId === platform.id);
             const hasStar = stars.some(star => star.platformId === platform.id);
-            if (!platform.isMoving && !hasEnemy && !hasStar && Math.random() < SPRING_PLATFORM_CHANCE) {
+            if (!platform.isMoving && !platform.isCrackingPlatform && !hasEnemy && !hasStar && Math.random() < SPRING_PLATFORM_CHANCE) {
                 springs.push(createSpring(platform));
             }
         }
@@ -804,6 +810,10 @@
             platform.isFalling = false;
             platform.fallVelocity = 0;
             platform.isMoving = nextPlatform.isMoving;
+            platform.isCrackingPlatform = nextPlatform.isCrackingPlatform;
+            platform.crackStarted = false;
+            platform.crackStartTime = 0;
+            platform.crackProgress = 0;
             platform.moveAmplitude = nextPlatform.moveAmplitude;
             platform.moveSpeed = nextPlatform.moveSpeed;
             platform.movePhase = nextPlatform.movePhase;
@@ -859,6 +869,31 @@
                     platform.y = platform.baseY + Math.sin(platform.movePhase) * platform.moveAmplitude;
                 } else {
                     platform.y = platform.baseY;
+                }
+            });
+        }
+
+        function updateCrackingPlatforms() {
+            const now = performance.now();
+
+            platforms.forEach(platform => {
+                if (!platform.isCrackingPlatform || !platform.crackStarted || platform.isFalling) {
+                    return;
+                }
+
+                const elapsed = now - platform.crackStartTime;
+                platform.crackProgress = clamp(elapsed / CRACKING_PLATFORM_DURATION_MS, 0, 1);
+
+                if (elapsed >= CRACKING_PLATFORM_DURATION_MS) {
+                    platform.isFalling = true;
+                    platform.fallVelocity = Math.max(platform.fallVelocity, INITIAL_PLATFORM_FALL_VELOCITY);
+
+                    if (platform === currentPlatform) {
+                        currentPlatform = null;
+                        player.jumping = true;
+                        player.y -= 2;
+                        player.velY = Math.max(player.velY, 1.5);
+                    }
                 }
             });
         }
@@ -1295,6 +1330,7 @@
 
             updatePowerUpState();
             updateMovingPlatforms();
+            updateCrackingPlatforms();
             updateStars();
             updateSprings();
 
@@ -1317,6 +1353,12 @@
                 player.y = landedPlatform.y - player.height;
                 player.velY = 0;
                 currentPlatform = landedPlatform; // Track current platform
+
+                if (landedPlatform.isCrackingPlatform && !landedPlatform.crackStarted) {
+                    landedPlatform.crackStarted = true;
+                    landedPlatform.crackStartTime = performance.now();
+                    landedPlatform.crackProgress = 0;
+                }
                 
                 // Award points only when landing on a new platform that is higher up
                 if (lastLandedPlatform !== landedPlatform) {
@@ -1397,16 +1439,63 @@
             ctx.fillStyle = 'black';
             let hasLabel = false;
             platforms.forEach(platform => {
+                let drawX = platform.x;
+                let drawY = platform.y - (platform.height * 1.8);
+
+                if (platform.isCrackingPlatform && platform.crackStarted && !platform.isFalling) {
+                    const shakeStrength = 2 + (platform.crackProgress * 6);
+                    drawX += Math.sin(Date.now() / 16 + platform.id) * shakeStrength;
+                    drawY += Math.cos(Date.now() / 20 + platform.id) * (shakeStrength * 0.85);
+                }
+
                 if (platformImage.complete && platformImage.naturalWidth > 0) {
                     ctx.drawImage(
                         platformImage,
-                        platform.x,
-                        platform.y - (platform.height * 1.8),
+                        drawX,
+                        drawY,
                         platform.width,
                         platform.height * 3
                     );
                 } else {
                     ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+                }
+
+                if (platform.isCrackingPlatform && platform.crackStarted && !platform.isFalling) {
+                    const crackBaseY = platform.y - (platform.height * 0.5);
+                    const crackCount = 4 + Math.floor(platform.crackProgress * 7);
+
+                    ctx.save();
+                    ctx.strokeStyle = `rgba(230, 247, 255, ${0.55 + (platform.crackProgress * 0.4)})`;
+                    ctx.lineWidth = 1.6 + (platform.crackProgress * 1.6);
+
+                    for (let crackIndex = 0; crackIndex < crackCount; crackIndex++) {
+                        const horizontalStep = 0.72 / Math.max(1, crackCount - 1);
+                        const startX = platform.x + (platform.width * (0.14 + crackIndex * horizontalStep));
+                        const startY = crackBaseY + ((crackIndex % 3) * 4);
+                        const crackDepth = 10 + (platform.crackProgress * 10);
+                        const crackWidth = platform.width * (0.08 + (platform.crackProgress * 0.05));
+
+                        ctx.beginPath();
+                        ctx.moveTo(startX, startY);
+                        ctx.lineTo(startX + crackWidth, startY + 4);
+                        ctx.lineTo(startX - (crackWidth * 0.6), startY + crackDepth * 0.45);
+                        ctx.lineTo(startX + (crackWidth * 1.2), startY + crackDepth);
+                        if (platform.crackProgress > 0.35) {
+                            ctx.lineTo(startX - (crackWidth * 0.8), startY + crackDepth * 1.25);
+                        }
+                        ctx.stroke();
+                    }
+
+                    ctx.strokeStyle = `rgba(90, 130, 170, ${0.25 + (platform.crackProgress * 0.35)})`;
+                    ctx.lineWidth = 1 + platform.crackProgress;
+                    ctx.beginPath();
+                    ctx.moveTo(platform.x + (platform.width * 0.08), crackBaseY + 5);
+                    ctx.lineTo(platform.x + (platform.width * 0.38), crackBaseY + 12 + (platform.crackProgress * 4));
+                    ctx.lineTo(platform.x + (platform.width * 0.66), crackBaseY + 7);
+                    ctx.lineTo(platform.x + (platform.width * 0.9), crackBaseY + 15 + (platform.crackProgress * 5));
+                    ctx.stroke();
+
+                    ctx.restore();
                 }
                 
                 // Display platform label for multiples of 10
