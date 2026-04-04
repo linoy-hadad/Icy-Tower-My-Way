@@ -153,6 +153,8 @@
         let diamondBoostActive = false;
         let diamondBoostStartTime = 0;
         let diamondBoostEndTime = 0;
+        let pendingGameOverSoundTimeout = 0;
+        let recordCheerTimeout = 0;
         const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
         let handControlState = {
             leftRaised: false,
@@ -189,6 +191,16 @@
         const touchRightBtn = document.getElementById('touchRightBtn');
         const touchJumpBtn = document.getElementById('touchJumpBtn');
         const recordToast = document.getElementById('recordToast');
+        const RECORD_TOAST_DURATION_MS = 2000;
+        const jumpSound = new Audio('./assets/jump.mp3');
+        const landingSound = new Audio('./assets/landing.wav');
+        const diamondPickupSound = new Audio('./assets/item-pickup.mp3');
+        const gameOverSound = new Audio('./assets/gameover.ogg');
+        const enemyHitSound = new Audio('./assets/enemy-hit.mp3');
+        const starPickupSound = new Audio('./assets/star-pickup.wav');
+        const woohooSound = new Audio('./assets/woohoo.mp3');
+        const recordCheerSound = new Audio('./assets/record-cheer.mp3');
+        const backgroundMusic = new Audio('./assets/background-video.mp4');
         playerFrontImage.src = './assets/player-front.png';
         playerBackImage.src = './assets/player-back.png';
         playerStarFrontImage.src = './assets/player-star-front.png';
@@ -201,6 +213,25 @@
         springPowerupImage.src = './assets/spring-powerup.png';
         diamondPowerupImage.src = './assets/diamond-powerup.png';
         stormSnowflakeImage.src = './assets/storm-snowflake.png';
+        jumpSound.preload = 'auto';
+        landingSound.preload = 'auto';
+        diamondPickupSound.preload = 'auto';
+        gameOverSound.preload = 'auto';
+        enemyHitSound.preload = 'auto';
+        starPickupSound.preload = 'auto';
+        woohooSound.preload = 'auto';
+        recordCheerSound.preload = 'auto';
+        backgroundMusic.preload = 'auto';
+        backgroundMusic.loop = true;
+        backgroundMusic.volume = 0.22;
+        jumpSound.volume = 0.5;
+        landingSound.volume = 0.45;
+        diamondPickupSound.volume = 0.45;
+        gameOverSound.volume = 0.5;
+        enemyHitSound.volume = 0.55;
+        starPickupSound.volume = 0.45;
+        woohooSound.volume = 0.55;
+        recordCheerSound.volume = 0.34;
 
         applyMobilePerformanceSettings();
 
@@ -275,6 +306,53 @@
             recordToast.classList.remove('show');
             void recordToast.offsetWidth;
             recordToast.classList.add('show');
+            playSound(recordCheerSound);
+
+            if (recordCheerTimeout) {
+                clearTimeout(recordCheerTimeout);
+            }
+
+            recordCheerTimeout = window.setTimeout(() => {
+                recordCheerSound.pause();
+                recordCheerSound.currentTime = 0;
+                recordCheerTimeout = 0;
+            }, RECORD_TOAST_DURATION_MS);
+        }
+
+        function playSound(audio, options = {}) {
+            if (!audio) {
+                return;
+            }
+
+            const shouldRestart = options.restart ?? true;
+
+            try {
+                if (shouldRestart) {
+                    audio.pause();
+                    audio.currentTime = 0;
+                }
+
+                const playPromise = audio.play();
+                if (playPromise && typeof playPromise.catch === 'function') {
+                    playPromise.catch(() => {});
+                }
+            } catch (error) {
+                // Ignore playback failures caused by browser policies.
+            }
+        }
+
+        function startBackgroundMusic() {
+            if (isTouchDevice && document.body.classList.contains('mobile-performance')) {
+                return;
+            }
+
+            backgroundMusic.currentTime = 0;
+            playSound(backgroundMusic, { restart: false });
+        }
+
+        function stopBackgroundMusic() {
+            backgroundMusic.pause();
+            backgroundMusic.currentTime = 0;
         }
 
         function setCameraStatus(message = '') {
@@ -398,9 +476,14 @@
             }
 
             const jumpStrength = playerHasBoostedJump ? BOOSTED_JUMP : baseJump;
+            const isBoostedJump = playerHasBoostedJump;
             player.jumping = true;
             player.velY = jumpStrength - Math.abs(player.velX);
             playerHasBoostedJump = false;
+            playSound(jumpSound);
+            if (isBoostedJump) {
+                playSound(woohooSound);
+            }
         }
 
         function processHandResults(results) {
@@ -511,6 +594,7 @@
             hideStartScreen();
             setCameraStatus('');
             resetGame();
+            startBackgroundMusic();
             gameState = 'playing';
             updateTouchControlsVisibility();
         }
@@ -535,6 +619,7 @@
                 hideStartScreen();
                 setCameraStatus('');
                 resetGame();
+                startBackgroundMusic();
                 gameState = 'playing';
                 updateTouchControlsVisibility();
                 cameraAnimationFrameId = requestAnimationFrame(detectHandsFrame);
@@ -552,6 +637,7 @@
             gameState = 'menu';
             currentControlMode = 'menu';
             stopCameraMode();
+            stopBackgroundMusic();
             showStartScreen();
             setCameraStatus('');
             updateTouchControlsVisibility();
@@ -1153,6 +1239,7 @@
                 if (isColliding) {
                     playerPoweredUp = true;
                     powerUpEndTime = Date.now() + POWER_UP_DURATION_MS;
+                    playSound(starPickupSound);
                     return false;
                 }
 
@@ -1186,6 +1273,7 @@
             player.jumping = true;
             player.y -= 8;
             player.velY = getDiamondSuperJumpVelocity();
+            playSound(woohooSound);
         }
 
         function checkDiamondCollision() {
@@ -1198,6 +1286,7 @@
 
                 if (isColliding) {
                     diamondCount++;
+                    playSound(diamondPickupSound);
 
                     if (diamondCount >= DIAMOND_TARGET_COUNT) {
                         triggerDiamondSuperJump();
@@ -1443,13 +1532,25 @@
                         return false;
                     }
 
-                    endGame("You hit an enemy!");
+                    playSound(enemyHitSound);
+                    endGame("You hit an enemy!", { delayGameOverSoundMs: 280 });
                 }
                 return true;
             });
         }
 
         function resetGame() {
+            if (pendingGameOverSoundTimeout) {
+                clearTimeout(pendingGameOverSoundTimeout);
+                pendingGameOverSoundTimeout = 0;
+            }
+            if (recordCheerTimeout) {
+                clearTimeout(recordCheerTimeout);
+                recordCheerTimeout = 0;
+            }
+            recordCheerSound.pause();
+            recordCheerSound.currentTime = 0;
+
             // Reset player
             player.x = canvas.width / 2 - player.width / 2;
             player.y = canvas.height - 150;
@@ -1493,13 +1594,29 @@
             updateTouchControlsVisibility();
         }
 
-        function endGame(message) {
+        function endGame(message, options = {}) {
+            const delayGameOverSoundMs = options.delayGameOverSoundMs ?? 0;
+            const playGameOverAudio = options.playGameOverAudio ?? true;
             gameState = "gameOver";
+            stopBackgroundMusic();
+            if (pendingGameOverSoundTimeout) {
+                clearTimeout(pendingGameOverSoundTimeout);
+                pendingGameOverSoundTimeout = 0;
+            }
             const scoreUpdate = addScoreToBestScores(score);
             document.getElementById('gameOverMessage').textContent = message;
             renderBestScores(scoreUpdate.bestScores);
             document.getElementById('gameOverScreen').classList.add('show');
             updateTouchControlsVisibility();
+
+            if (playGameOverAudio) {
+                pendingGameOverSoundTimeout = window.setTimeout(() => {
+                    if (gameState === 'gameOver') {
+                        playSound(gameOverSound);
+                    }
+                    pendingGameOverSoundTimeout = 0;
+                }, delayGameOverSoundMs);
+            }
         }
 
         function updateGame() {
@@ -1606,10 +1723,15 @@
             });
 
             if (landedPlatform) {
+                const isFreshLanding = currentPlatform !== landedPlatform;
                 player.jumping = false;
                 player.y = landedPlatform.y - player.height;
                 player.velY = 0;
                 currentPlatform = landedPlatform; // Track current platform
+
+                if (isFreshLanding) {
+                    playSound(landingSound);
+                }
 
                 if (landedPlatform.isCrackingPlatform && !landedPlatform.crackStarted) {
                     landedPlatform.crackStarted = true;
@@ -1851,7 +1973,10 @@
         }
 
         // Event listeners
-        document.getElementById('playAgainBtn').addEventListener('click', resetGame);
+        document.getElementById('playAgainBtn').addEventListener('click', function() {
+            resetGame();
+            startBackgroundMusic();
+        });
         startBtn.addEventListener('click', function() {
             startGameplay('keyboard');
         });
