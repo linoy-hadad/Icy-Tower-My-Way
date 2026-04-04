@@ -42,6 +42,7 @@
         </div>
             <button class="touchBtn jumpBtn" id="touchJumpBtn" aria-label="Jump">Jump</button>
     </div>
+    <button id="muteToggleBtn" aria-label="Mute sound" title="Mute sound">🔊</button>
     <div id="recordToast">You crushed your best score!</div>
     <div id="gameOverScreen">
         <div class="gameOverModal">
@@ -82,11 +83,13 @@
         const SPRING_PLATFORM_CHANCE = 0.05;
         const SPRING_SIZE = 52;
         const DIAMOND_PLATFORM_CHANCE = 0.06;
-        const DIAMOND_SIZE = 42;
+        const DIAMOND_SIZE = 54;
         const DIAMOND_TARGET_COUNT = 5;
         const DIAMOND_SUPER_JUMP_DURATION_MS = 1000;
         const CRACKING_PLATFORM_CHANCE = 0.06;
         const CRACKING_PLATFORM_DURATION_MS = 750;
+        const HUD_LABEL_FONT_FAMILY = "'Kilegore', serif";
+        const HUD_NUMBER_FONT_FAMILY = "'Hiro Misake', serif";
         const MEDIAPIPE_WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm';
         const HAND_LANDMARKER_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
         const HAND_RAISE_THRESHOLD = 0.58;
@@ -156,6 +159,7 @@
         let pendingGameOverSoundTimeout = 0;
         let recordCheerTimeout = 0;
         const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+        let isMuted = false;
         let handControlState = {
             leftRaised: false,
             rightRaised: false,
@@ -190,6 +194,7 @@
         const touchLeftBtn = document.getElementById('touchLeftBtn');
         const touchRightBtn = document.getElementById('touchRightBtn');
         const touchJumpBtn = document.getElementById('touchJumpBtn');
+        const muteToggleBtn = document.getElementById('muteToggleBtn');
         const recordToast = document.getElementById('recordToast');
         const RECORD_TOAST_DURATION_MS = 2000;
         const jumpSound = new Audio('./assets/jump.mp3');
@@ -232,6 +237,21 @@
         starPickupSound.volume = 0.45;
         woohooSound.volume = 0.55;
         recordCheerSound.volume = 0.34;
+        document.fonts.load(`24px ${HUD_LABEL_FONT_FAMILY}`).catch(() => {});
+        document.fonts.load(`24px ${HUD_NUMBER_FONT_FAMILY}`).catch(() => {});
+        [
+            jumpSound,
+            landingSound,
+            diamondPickupSound,
+            gameOverSound,
+            enemyHitSound,
+            starPickupSound,
+            woohooSound,
+            recordCheerSound,
+            backgroundMusic
+        ].forEach(audio => {
+            audio.muted = isMuted;
+        });
 
         applyMobilePerformanceSettings();
 
@@ -320,7 +340,7 @@
         }
 
         function playSound(audio, options = {}) {
-            if (!audio) {
+            if (!audio || isMuted) {
                 return;
             }
 
@@ -342,7 +362,7 @@
         }
 
         function startBackgroundMusic() {
-            if (isTouchDevice && document.body.classList.contains('mobile-performance')) {
+            if (isMuted) {
                 return;
             }
 
@@ -353,6 +373,53 @@
         function stopBackgroundMusic() {
             backgroundMusic.pause();
             backgroundMusic.currentTime = 0;
+        }
+
+        function updateMuteButton() {
+            muteToggleBtn.style.display = isTouchDevice ? 'none' : 'flex';
+            muteToggleBtn.textContent = isMuted ? '🔇' : '🔊';
+            muteToggleBtn.setAttribute('aria-label', isMuted ? 'Unmute sound' : 'Mute sound');
+            muteToggleBtn.setAttribute('title', isMuted ? 'Unmute sound' : 'Mute sound');
+            muteToggleBtn.classList.toggle('muted', isMuted);
+        }
+
+        function toggleMute() {
+            isMuted = !isMuted;
+            [
+                jumpSound,
+                landingSound,
+                diamondPickupSound,
+                gameOverSound,
+                enemyHitSound,
+                starPickupSound,
+                woohooSound,
+                recordCheerSound,
+                backgroundMusic
+            ].forEach(audio => {
+                audio.muted = isMuted;
+            });
+
+            if (isMuted) {
+                stopBackgroundMusic();
+                [
+                    jumpSound,
+                    landingSound,
+                    diamondPickupSound,
+                    gameOverSound,
+                    enemyHitSound,
+                    starPickupSound,
+                    woohooSound,
+                    recordCheerSound
+                ].forEach(audio => {
+                    audio.pause();
+                    audio.currentTime = 0;
+                });
+            } else if (gameState === 'playing') {
+                startBackgroundMusic();
+            }
+
+            updateMuteButton();
+            muteToggleBtn.blur();
         }
 
         function setCameraStatus(message = '') {
@@ -1455,16 +1522,17 @@
 
         function drawDiamonds() {
             diamonds.forEach(diamond => {
-                const pulse = 1 + Math.sin(Date.now() / 200) * 0.09;
-                const bobOffset = Math.sin(Date.now() / 250) * 5;
+                const pulse = 1 + Math.sin(Date.now() / 180) * 0.12;
+                const bobOffset = Math.sin(Date.now() / 220) * 6;
                 const drawWidth = diamond.width * pulse;
                 const drawHeight = diamond.height * pulse;
                 const drawX = diamond.x - (drawWidth - diamond.width) / 2;
                 const drawY = diamond.y - (drawHeight - diamond.height) / 2 + bobOffset;
 
                 ctx.save();
-                ctx.shadowColor = 'rgba(225, 245, 255, 0.95)';
-                ctx.shadowBlur = 18 + ((pulse - 1) * 50);
+                ctx.shadowColor = 'rgba(225, 245, 255, 1)';
+                ctx.shadowBlur = 24 + ((pulse - 1) * 80);
+                ctx.globalAlpha = 0.98;
 
                 if (diamondPowerupImage.complete && diamondPowerupImage.naturalWidth > 0) {
                     ctx.drawImage(
@@ -1480,6 +1548,20 @@
                     ctx.arc(drawX + drawWidth / 2, drawY + drawHeight / 2, drawWidth / 2, 0, Math.PI * 2);
                     ctx.fill();
                 }
+
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.52)';
+                ctx.beginPath();
+                ctx.arc(drawX + drawWidth * 0.34, drawY + drawHeight * 0.3, drawWidth * 0.12, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = 'rgba(228, 248, 255, 0.78)';
+                ctx.lineWidth = 1.4;
+                ctx.beginPath();
+                ctx.moveTo(drawX + drawWidth * 0.16, drawY + drawHeight * 0.54);
+                ctx.lineTo(drawX + drawWidth * 0.84, drawY + drawHeight * 0.54);
+                ctx.moveTo(drawX + drawWidth * 0.5, drawY + drawHeight * 0.14);
+                ctx.lineTo(drawX + drawWidth * 0.5, drawY + drawHeight * 0.86);
+                ctx.stroke();
 
                 ctx.restore();
             });
@@ -1911,11 +1993,17 @@
                 // Display platform label for multiples of 10
                 if (platform.id % 10 === 0) {
                     hasLabel = true;
-                    ctx.fillStyle = 'white';
-                    ctx.font = 'bold 16px Arial';
+                    ctx.save();
+                    ctx.fillStyle = '#f4fdff';
+                    ctx.font = `22px ${HUD_NUMBER_FONT_FAMILY}`;
                     ctx.textAlign = 'center';
-                    ctx.fillText(platform.id, platform.x + platform.width / 2, platform.y + platform.height + 15);
-                    ctx.fillStyle = 'black';
+                    ctx.shadowColor = 'rgba(150, 228, 255, 0.95)';
+                    ctx.shadowBlur = 10;
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = 'rgba(23, 39, 56, 0.9)';
+                    ctx.strokeText(platform.id, platform.x + platform.width / 2, platform.y + platform.height + 18);
+                    ctx.fillText(platform.id, platform.x + platform.width / 2, platform.y + platform.height + 18);
+                    ctx.restore();
                     ctx.textAlign = 'left';
                 }
             });
@@ -1944,9 +2032,40 @@
             drawStormSnowflake();
 
             // Draw score and diamond progress
-            ctx.fillStyle = 'black';
-            ctx.font = '24px Arial';
-            ctx.fillText(`Score: ${score}   Diamonds: ${diamondCount}`, 20, 40);
+            ctx.save();
+            ctx.textBaseline = 'top';
+            ctx.shadowColor = 'rgba(146, 222, 255, 0.95)';
+            ctx.shadowBlur = 12;
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = 'rgba(20, 34, 49, 0.92)';
+            ctx.fillStyle = '#f5fdff';
+
+            let hudX = 20;
+            const hudY = 14;
+
+            ctx.font = `28px ${HUD_LABEL_FONT_FAMILY}`;
+            const scoreLabel = 'Score: ';
+            ctx.strokeText(scoreLabel, hudX, hudY);
+            ctx.fillText(scoreLabel, hudX, hudY);
+            hudX += ctx.measureText(scoreLabel).width;
+
+            ctx.font = `30px ${HUD_NUMBER_FONT_FAMILY}`;
+            const scoreValue = String(score);
+            ctx.strokeText(scoreValue, hudX, hudY);
+            ctx.fillText(scoreValue, hudX, hudY);
+            hudX += ctx.measureText(scoreValue).width + 18;
+
+            ctx.font = `28px ${HUD_LABEL_FONT_FAMILY}`;
+            const diamondLabel = 'Diamonds: ';
+            ctx.strokeText(diamondLabel, hudX, hudY);
+            ctx.fillText(diamondLabel, hudX, hudY);
+            hudX += ctx.measureText(diamondLabel).width;
+
+            ctx.font = `30px ${HUD_NUMBER_FONT_FAMILY}`;
+            const diamondValue = String(diamondCount);
+            ctx.strokeText(diamondValue, hudX, hudY);
+            ctx.fillText(diamondValue, hudX, hudY);
+            ctx.restore();
         }
 
         let lastTime = 0;
@@ -2016,6 +2135,14 @@
             e.preventDefault();
             triggerJump('touch');
         });
+        muteToggleBtn.addEventListener('click', toggleMute);
+        muteToggleBtn.addEventListener('keydown', function(e) {
+            if (e.code === 'Space' || e.code === 'Enter') {
+                e.preventDefault();
+                muteToggleBtn.blur();
+            }
+        });
+        updateMuteButton();
 
         requestAnimationFrame(gameLoop);
     </script>
